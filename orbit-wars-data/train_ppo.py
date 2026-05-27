@@ -7,11 +7,18 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 from core.ppo_env import OrbitWarsGymEnv
 
 def main():
+    import sys
     parser = argparse.ArgumentParser(description="Train PPO Reinforcement Learning Agent for Orbit Wars (High Performance).")
     parser.add_argument("--steps", type=int, default=150000, help="Number of timesteps to train.")
     parser.add_argument("--save-path", type=str, default="models/ppo_orbit_wars.zip", help="Path to save model weights.")
     parser.add_argument("--envs", type=int, default=8, help="Number of parallel environments.")
-    args = parser.parse_args()
+    
+    # Detect Jupyter / Kaggle / Colab kernel execution to prevent SystemExit: 2
+    is_jupyter = any(x in sys.argv[0].lower() for x in ["kernel", "ipykernel", "colab"]) or any("kernel" in arg for arg in sys.argv)
+    if is_jupyter:
+        args = parser.parse_args(args=[])
+    else:
+        args = parser.parse_args()
 
     print("=" * 70)
     print("   ORBIT WARS: HIGH-PERFORMANCE VEC-ENVIRONMENT PPO TRAINER")

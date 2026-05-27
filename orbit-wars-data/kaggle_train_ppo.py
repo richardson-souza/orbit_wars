@@ -312,11 +312,18 @@ class OrbitWarsGymEnv(gym.Env):
 # ==============================================================================
 
 if __name__ == "__main__":
+    import sys
     parser = argparse.ArgumentParser(description="Kaggle Notebook High-Performance PPO Trainer.")
     parser.add_argument("--steps", type=int, default=500000, help="Number of training steps.")
     parser.add_argument("--envs", type=int, default=4, help="Number of parallel environments (use 2 or 4 in Kaggle CPU).")
     parser.add_argument("--save-path", type=str, default="/kaggle/working/ppo_orbit_wars.zip", help="Path to save weights in Kaggle output.")
-    args = parser.parse_args()
+    
+    # Detect Jupyter / Kaggle / Colab kernel execution to prevent SystemExit: 2
+    is_jupyter = any(x in sys.argv[0].lower() for x in ["kernel", "ipykernel", "colab"]) or any("kernel" in arg for arg in sys.argv)
+    if is_jupyter:
+        args = parser.parse_args(args=[])
+    else:
+        args = parser.parse_args()
 
     print("=" * 70)
     print("   KAGGLE ARENA: SELF-CONTAINED HIGH-PERFORMANCE PPO TRAINER")
