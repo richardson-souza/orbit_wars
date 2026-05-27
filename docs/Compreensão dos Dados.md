@@ -1,0 +1,17 @@
+O objetivo desta fase é mapear a telemetria do ambiente da competição (o objeto `obs`), que atua como os "sensores" do nosso agente a cada turno. Diferente de dados do mundo real, lidamos com um ambiente de "informação perfeita", onde nenhum dado está oculto sob névoa de guerra (fog of war).
+#### Avaliação dos Critérios de Sucesso
+
+- **Qualidade dos Dados:** A qualidade é absoluta. Como os dados são gerados deterministicamente pelo motor do jogo a cada um dos 500 turnos, não lidamos com valores ausentes (missing values), ruídos de sensor ou dados corrompidos.
+    
+- **Disponibilidade dos Dados:** Os dados estão disponíveis de forma contínua e em tempo real a cada chamada da função do agente. O acesso é feito extraindo chaves do dicionário ou atributos do objeto `obs` (por exemplo, `obs.get("planets", [])` ou `obs.planets` e `obs.get("player", 0)`). Para análises retrospectivas, a plataforma permite baixar o JSON completo do replay das partidas ("Download Replays and Logs").
+    
+- **Capacidade de Resposta (Poder Analítico):** O nível de granularidade responde perfeitamente às necessidades do negócio. Os dados fornecem a posição exata $(x, y)$, a composição de forças (`ships`) e as variáveis cinemáticas (`angular_velocity`, `paths`) de todas as entidades, permitindo a construção de simuladores internos perfeitos para prever o estado do tabuleiro em turnos futuros.
+#### Dicionário de Dados do Ambiente (Observation Reference)
+
+|**Entidade**|**Atributos Disponíveis**|**Nuances e Capacidade Analítica**|
+|---|---|---|
+|**Jogador e Partida**|`player`, `remainingOverageTime`|Identifica o seu ID na partida (inteiro de 0 a 3) e o tempo extra disponível para processamento antes de tomar um timeout.|
+|**Planetas (Iniciais e Atuais)**|`[id, owner, x, y, radius, ships, production]`|Identifica todos os alvos potenciais e suas defesas. Um `owner` igual a -1 indica um planeta neutro. A produção (de 1 a 5) determina a taxa de criação de naves e o raio físico do planeta através da fórmula 1 + ln(production).|
+|**Frotas em Voo**|`[id, owner, x, y, angle, from_planet_id, ships]`|Essencial para rastrear ameaças e interceptações. O campo `ships` informa o tamanho da frota e é garantido que esse valor não sofrerá alterações durante a viagem espacial.|
+|**Cometas (Fenômenos Temporários)**|`comet_planet_ids`, `comets` (`paths`, `path_index`)|Cometas aparecem na lista comum de planetas (podendo sofrer captura e combate), mas o campo `paths` fornece o vetor com a trajetória elíptica completa, permitindo prever exatamente onde estarão a cada turno e quando sairão do tabuleiro.|
+|**Física do Ambiente**|`angular_velocity`|Variável de ponto flutuante que indica a velocidade de rotação constante dos planetas internos (entre 0.025 e 0.05 radianos/turno). Cruzada com os dados de `initial_planets`, permite calcular trigonometricamente as posições futuras.|

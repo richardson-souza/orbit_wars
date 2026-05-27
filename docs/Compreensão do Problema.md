@@ -1,0 +1,46 @@
+### 1. O Objetivo de Negócio
+
+O objetivo principal da competição é acumular a maior quantidade total de naves (soma das frotas ativas em voo e das guarnições alocadas nos planetas) ao final do limite de 500 turnos, ou eliminar todos os adversários, sendo o último jogador restante.
+### 2. Topologia do Mapa e Restrições Espaciais
+
+O nosso campo de atuação ("board") não é um grid discreto, mas sim um espaço contínuo.
+
+- **Dimensões e Centro:** O campo de batalha possui 100x100 de espaço contínuo, com a origem `(0, 0)` no canto superior esquerdo. O sol mortal fica exatamente centralizado nas coordenadas `(50, 50)`.
+    
+- **Zona de Destruição (Sol):** O sol central possui um raio cravado de 10 unidades. Qualquer segmento de trajeto de uma frota que passe por dentro desse raio resultará na destruição imediata e total da frota.
+    
+- **Simetria de Justiça (Fairness):** Todos os planetas e cometas são gerados no mapa com uma simetria espelhada quádrupla para garantir que a posição inicial não conceda vantagem. Matematicamente, para um elemento na coordenada gerada $(x, y)$, existirão contrapartes exatas em $(100-x, y)$, $(x, 100-y)$ e $(100-x, 100-y)$. Em jogos de 2 jogadores, os oponentes começam em quadrantes diagonalmente opostos.
+### 3. Fórmulas de Física Planetária
+
+Os planetas possuem métricas de produção que ditam o seu tamanho físico no espaço contínuo, o que impacta na detecção de colisões.
+
+- **Cálculo de Raio Planetário:** O raio de um planeta é ditado diretamente pela sua taxa de produção através da equação $R = 1 + \ln(P)$ onde $P$ é a produção, variando como um número inteiro de 1 a 5. Planetas que produzem mais naves são fisicamente maiores no mapa.
+    
+- **Mecânica de Órbita:** Um planeta orbita o centro do mapa se, e somente se, atender à condição matemática de $R_{orbital} + R_{planeta} < 50$.
+    
+- **Velocidade Angular:** Planetas orbitais giram ao redor do sol a uma velocidade angular constante que é randomizada a cada partida, situando-se entre $0.025$ e $0.05$ radianos por turno. Os planetas mais distantes (periféricos) são estáticos e não rotacionam.
+### 4. Dinâmica e Logística das Frotas
+
+A logística de envio é o cerne do jogo. As naves não são teleportadas; elas voam em linha reta segundo uma curva de aceleração baseada em volume.
+
+- **Lançamento:** Frotas nascem do lado de fora do raio do planeta de origem. Você não pode lançar uma quantidade de naves superior à que está atualmente armazenada na guarnição do planeta e não pode lançar frotas a partir de cometas que estão saindo do mapa naquele turno.
+    
+- **Curva de Velocidade Logarítmica:** A velocidade da frota escala conforme o seu tamanho. O envio de 1 nave movimenta a frota a 1.0 unidade/turno. Uma frota com cerca de 500 naves viaja a aproximadamente 5.0 unidades/turno. Uma frota maciça de 1000 naves ou mais atinge o limite máximo de velocidade (teto padrão de 6.0 unidades/turno).
+    
+- **Orientação de Lançamento:** O ângulo direcional (`direction_angle`) requisitado pelas ações do agente deve ser fornecido em radianos. Por exemplo, 0 aponta para a direita e $\pi/2$ aponta para baixo.
+### 5. Matemática da Resolução de Combates
+
+As colisões (seja por voar diretamente em direção ao planeta ou por ser atropelado por um planeta orbital em movimento) desencadeiam a rotina de combate, que ocorre de forma estritamente determinística no final do turno.
+
+- **Agrupamento de Forças:** Todas as frotas que chegam ao planeta alvo no mesmo turno são agrupadas por seus respectivos proprietários e suas naves são somadas.
+    
+- **Batalha entre Frotas Atacantes:** O maior exército atacante luta contra o segundo maior. Apenas a diferença matemática de naves sobrevive ao combate. Se ocorrer um empate exato entre as duas maiores forças atacantes, todos os atacantes são aniquilados, não restando sobreviventes.
+    
+- **Confronto com a Guarnição (Cerco):** Os atacantes que sobrevivem à etapa anterior e não pertencem ao dono do planeta enfrentam a guarnição atual. As naves atacantes são subtraídas da guarnição. Se o contingente de ataque for maior que a guarnição, o planeta troca de posse e o excedente matemático de naves atacantes torna-se a nova guarnição de defesa.
+### 6. Mecânica Temporária: Cometas
+
+Os cometas funcionam como planetas temporários de baixo valor produtivo e injetam aleatoriedade logística ao jogo através das suas rotas elípticas.
+
+- **Surgimento e Prazos:** Os cometas dão _spawn_ em grupos de 4 (um em cada quadrante do mapa) nos turnos exatos 50, 150, 250, 350 e 450. Quando eles saem dos limites do mapa, desaparecem e levam consigo qualquer nave estacionada em sua guarnição.
+    
+- **Características Fixas:** Diferente dos planetas normais, cometas têm um raio espacial estático de 1.0 unidade, velocidade de travessia fixada em 4.0 unidades/turno e produção de apenas 1 nave/turno se capturados pelo jogador.

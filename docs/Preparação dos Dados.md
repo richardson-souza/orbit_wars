@@ -1,0 +1,44 @@
+### 3. Preparação dos Dados (Data Preparation / Feature Engineering)
+
+A inteligência de verdade nasce aqui. O agente bruto fornecido na documentação (como o "Nearest Planet Sniper") apenas olha para o estado atual e toma decisões reativas, enviando `garrison + 1` naves para o alvo mais próximo. Para vencer a competição, precisamos estruturar uma pipeline de pré-processamento que transforme os dados brutos (`obs`) em atributos preditivos a cada turno.
+#### 3.1 Seleção dos Dados (Select Data)
+
+Como recebemos todos os dados do mapa, precisamos focar no que é acionável no turno atual.
+
+- **Seleção de Origem:** Filtrar a lista de planetas para isolar apenas os planetas onde o atributo `owner` é igual ao nosso `player` ID, pois só podemos lançar frotas a partir deles.
+    
+- **Exclusão Temporária:** Ignorar cometas cujo campo `path_index` indique que estão saindo do mapa no turno atual, pois não é permitido lançar frotas de um cometa em partida.
+#### 3.2 Limpeza dos Dados (Clean Data)
+
+A qualidade dos dados oriundos do motor do jogo é estruturalmente perfeita (não há valores nulos ou corrompidos). A "limpeza" aqui foca em evitar erros de processamento matemático na nossa própria lógica.
+
+- **Prevenção de Divisão por Zero:** Ao calcular ângulos com `atan2` para a direção da frota, garantir que as coordenadas $x$ e $y$ de origem e destino não sejam exatamente iguais.
+    
+- **Validação de Estoque:** Assegurar via código que a variável `num_ships` a ser enviada nunca ultrapasse o valor atual do campo `ships` do planeta de origem, truncando o valor se necessário.
+#### 3.3 Construção de Dados e Atributos (Construct Data)
+
+Esta é a subfase mais crítica (Feature Engineering). Precisamos derivar novas características preditivas a partir da física do jogo.
+
+|**Novo Atributo (Feature)**|**Lógica de Construção e Matemática**|
+|---|---|
+|**Velocidade da Frota**|Mapear a curva logarítmica descrita nas regras. Criar uma função onde 1 nave resulta em 1.0 unidade/turno e frotas de aproximadamente 1000 naves ou mais atingem o limite de 6.0 unidades/turno.|
+|**Tempo Estimado (ETA)**|Calcular a distância euclidiana entre a origem e o destino e dividir pela _Velocidade da Frota_ calculada acima.|
+|**Interceptação Orbital**|Usar a `angular_velocity` (que varia de 0.025 a 0.05 radianos/turno) para projetar as coordenadas futuras $x$ e $y$ de um planeta alvo com base no _ETA_.|
+|**Guarnição Efetiva**|Calcular a defesa real do alvo no momento do impacto. Fórmula: multiplicar o _ETA_ pela `production` do planeta alvo (1 a 5) e somar ao valor atual de `ships` da guarnição.|
+|**Filtro Anti-Sol**|Criar uma flag booleana (`is_path_safe`). Implementar um ray-casting matemático para verificar se o segmento de reta entre origem e destino intercepta o círculo central de raio 10 posicionado na coordenada $(50, 50)$.|
+|**Mapeamento de Cometas**|Extrair o campo `paths` dos cometas (trajetórias elípticas completas) e usar o `path_index` para prever a coordenada exata em turnos futuros.|
+
+#### 3.4 Integração de Dados (Integrate Data)
+
+Para tomar decisões estratégicas de combate, precisamos cruzar as tabelas de planetas e frotas.
+
+- **Matriz de Cerco:** Agrupar todas as frotas em voo (array `fleets`) que estão se dirigindo ao mesmo planeta.
+    
+- **Balança de Poder:** Somar as naves (`ships`) agrupadas por proprietário (`owner`) para prever quem vencerá a colisão, sabendo que a maior força atacante destrói a segunda maior e o excedente ataca a guarnição. Isso nos informa se precisamos enviar reforços para defender um planeta ou se um ataque inimigo fará o trabalho sujo de enfraquecer um alvo neutro para nós.
+#### 3.5 Formatação e Transformação (Format Data)
+
+Por fim, os dados derivados devem ser formatados para alimentar a heurística final e respeitar a interface de saída do ambiente.
+
+- **Conversão Trigonométrica:** Transformar todas as direções calculadas em ângulos em radianos, onde $0$ representa a direita e $\pi/2$ representa para baixo.
+    
+- **Estruturação de Saída:** Formatar as decisões finais estritamente como uma lista de listas contendo `[from_planet_id, direction_angle, num_ships]` (ou retornar uma lista vazia `[]` se nenhuma ação for tomada no turno).
