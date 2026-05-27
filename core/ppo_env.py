@@ -168,8 +168,13 @@ class OrbitWarsGymEnv(gym.Env):
         state = self.env.steps[0]
         self.last_kaggle_obs = state[0].observation
 
-        # Find our home planet (owned by player 0)
+        # Initialize tracking metrics for differential reward
         planets = [Planet(*p) for p in self.last_kaggle_obs["planets"]]
+        self.prev_ally_ships = sum(p.ships for p in planets if p.owner == 0)
+        self.prev_ally_prod = sum(p.production for p in planets if p.owner == 0)
+        self.prev_enemy_ships = sum(p.ships for p in planets if p.owner == 1)
+
+        # Find our home planet (owned by player 0)
         home = next((p for p in planets if p.owner == 0), None)
 
         if home is None:
@@ -223,14 +228,30 @@ class OrbitWarsGymEnv(gym.Env):
         return obs_vector, reward, done, False, {}
 
     def _calculate_reward(self) -> float:
-        # Simple dense reward: Allied ships + production vs Enemy ships
+        # Stationary Differential Reward: reward changes in state metrics
         curr_planets = [Planet(*p) for p in self.last_kaggle_obs["planets"]]
         
         ally_ships = sum(p.ships for p in curr_planets if p.owner == 0)
         ally_prod = sum(p.production for p in curr_planets if p.owner == 0)
-        
         enemy_ships = sum(p.ships for p in curr_planets if p.owner == 1)
         
-        # Reward function
-        reward = (ally_ships + 5.0 * ally_prod) - 0.2 * enemy_ships
+        # Calculate deltas since previous turn
+        delta_ally_ships = ally_ships - self.prev_ally_ships
+        delta_ally_prod = ally_prod - self.prev_ally_prod
+        delta_enemy_ships = enemy_ships - self.prev_enemy_ships
+        
+        # Combine deltas into stationary step reward
+        reward = delta_ally_ships + 10.0 * delta_ally_prod - 0.2 * delta_enemy_ships
+        
+        # Win/Loss terminal bonuses
+        if enemy_ships == 0 and ally_ships > 0:
+            reward += 100.0
+        elif ally_ships == 0 and enemy_ships > 0:
+            reward -= 100.0
+            
+        # Update trackers for next step
+        self.prev_ally_ships = ally_ships
+        self.prev_ally_prod = ally_prod
+        self.prev_enemy_ships = enemy_ships
+        
         return float(reward)
