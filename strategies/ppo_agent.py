@@ -27,8 +27,8 @@ class PPOAgent(BaseStrategy):
             print(f"Warning: PPO model {model_path} not found. Operating in fallback mode.")
 
     def _extract_features(self, obs: ParsedObservation, from_planet: Planet) -> np.ndarray:
-        # Filter out from_planet itself
-        targets = [p for p in obs.all_planets.values() if p.id != from_planet.id]
+        # Filter out from_planet itself and owned planets
+        targets = [p for p in obs.all_planets.values() if p.id != from_planet.id and p.owner != obs.player]
 
         # Sort targets by Euclidean distance
         targets.sort(key=lambda t: distance((from_planet.x, from_planet.y), (t.x, t.y)))
@@ -73,7 +73,8 @@ class PPOAgent(BaseStrategy):
         return np.array(features, dtype=np.float32)
 
     def _translate_nn_action(self, obs: ParsedObservation, from_planet: Planet, action: int) -> list:
-        targets = [p for p in obs.all_planets.values() if p.id != from_planet.id]
+        # Find target candidates sorted by distance (filter out owned planets)
+        targets = [p for p in obs.all_planets.values() if p.id != from_planet.id and p.owner != obs.player]
         targets.sort(key=lambda t: distance((from_planet.x, from_planet.y), (t.x, t.y)))
 
         if action >= len(targets):
@@ -97,35 +98,37 @@ class PPOAgent(BaseStrategy):
 
     def get_actions(self, observation: Union[Dict[str, Any], Any]) -> List[List[Union[int, float]]]:
         obs = ParsedObservation(observation)
+        moves: List[List[Union[int, float]]] = []
         if not obs.my_planets:
-            return []
+            return moves
 
-        # Focus on our strongest planet
-        obs.my_planets.sort(key=lambda p: p.ships, reverse=True)
-        best_planet = obs.my_planets[0]
+        # Loop over every planet we own to call the PPO policy (parameter-sharing multi-planet control)
+        for mine in obs.my_planets:
+            if mine.ships < 10:
+                continue
 
-        if best_planet.ships < 10:
-            return []
+            # Fallback behaviour if no SB3 model is trained/loaded
+            if self.model is None:
+                targets = [p for p in obs.all_planets.values() if p.id != mine.id and p.owner != obs.player]
+                if not targets:
+                    continue
+                targets.sort(key=lambda t: distance((mine.x, mine.y), (t.x, t.y)))
+                closest = targets[0]
+                angle = math.atan2(closest.y - mine.y, closest.x - mine.x)
+                ships = int(mine.ships * 0.75)
+                if ships >= 15:
+                    moves.append([mine.id, angle, ships])
+                continue
 
-        # Fallback behaviour if no SB3 model is trained/loaded
-        if self.model is None:
-            # Let's perform a simple rule-based action (attack the closest non-owned planet)
-            targets = [p for p in obs.all_planets.values() if p.id != best_planet.id and p.owner != obs.player]
-            if not targets:
-                return []
-            targets.sort(key=lambda t: distance((best_planet.x, best_planet.y), (t.x, t.y)))
-            closest = targets[0]
-            angle = math.atan2(closest.y - best_planet.y, closest.x - best_planet.x)
-            ships = int(best_planet.ships * 0.75)
-            if ships >= 15:
-                return [[best_planet.id, angle, ships]]
-            return []
+            # 1. Extract localized neighbourhood state centered on 'mine'
+            obs_vector = self._extract_features(obs, mine)
 
-        # 1. Extract localized neighbourhood state
-        obs_vector = self._extract_features(obs, best_planet)
+            # 2. Query PPO neural policy
+            action, _state = self.model.predict(obs_vector, deterministic=True)
 
-        # 2. Query PPO neural policy
-        action, _state = self.model.predict(obs_vector, deterministic=True)
+            # 3. Translate neural index to Kaggle action
+            planet_move = self._translate_nn_action(obs, mine, int(action))
+            if planet_move:
+                moves.extend(planet_move)
 
-        # 3. Translate neural index to Kaggle action
-        return self._translate_nn_action(obs, best_planet, int(action))
+        return moves

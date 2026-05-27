@@ -166,8 +166,8 @@ class OrbitWarsGymEnv(gym.Env):
         planets_list = obs.get("planets", [])
         planets = [Planet(*p) if isinstance(p, list) else p for p in planets_list]
 
-        # Filter out from_planet itself
-        targets = [p for p in planets if p.id != from_planet.id]
+        # Filter out from_planet itself and owned planets
+        targets = [p for p in planets if p.id != from_planet.id and p.owner != player]
 
         # Sort targets by Euclidean distance
         targets.sort(key=lambda t: distance((from_planet.x, from_planet.y), (t.x, t.y)))
@@ -215,8 +215,8 @@ class OrbitWarsGymEnv(gym.Env):
         planets_list = obs.get("planets", [])
         planets = [Planet(*p) if isinstance(p, list) else p for p in planets_list]
 
-        # Find target candidates sorted by distance
-        targets = [p for p in planets if p.id != from_planet.id]
+        # Find target candidates sorted by distance (filter out owned planets)
+        targets = [p for p in planets if p.id != from_planet.id and p.owner != obs.get("player", 0)]
         targets.sort(key=lambda t: distance((from_planet.x, from_planet.y), (t.x, t.y)))
 
         if action >= len(targets):
