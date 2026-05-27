@@ -57,7 +57,7 @@ def main():
             "from core.observation import ParsedObservation, Planet, Fleet", ""
         )
         strat_heur = strat_heur.replace(
-            "from core.physics import distance, intersects_sun, get_planet_position_at_step",
+            "from core.physics import distance, intersects_sun, get_planet_position_at_step, intersects_planet",
             "",
         )
 

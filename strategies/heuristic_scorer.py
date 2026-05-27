@@ -2,7 +2,7 @@ import math
 from typing import List, Dict, Any, Union, Tuple
 from strategies.base_strategy import BaseStrategy
 from core.observation import ParsedObservation, Planet, Fleet
-from core.physics import distance, intersects_sun, get_planet_position_at_step
+from core.physics import distance, intersects_sun, get_planet_position_at_step, intersects_planet
 
 
 class HeuristicScorer(BaseStrategy):
@@ -56,6 +56,15 @@ class HeuristicScorer(BaseStrategy):
         if not candidate_targets or not obs.my_planets:
             return moves
 
+        # Dynamic detection of 4-player games
+        owners = {p.owner for p in obs.my_planets + obs.enemy_planets if p.owner != -1}
+        is_four_player = len(owners) > 2
+
+        # Min reserve ships (defense budget)
+        min_reserve_ships = 25
+        if is_four_player:
+            min_reserve_ships = 40
+
         for mine in obs.my_planets:
             if mine.id in planets_with_outgoing_fleets:
                 continue
@@ -67,7 +76,8 @@ class HeuristicScorer(BaseStrategy):
 
             available_ships = planet_ships.get(mine.id, 0)
 
-            if available_ships < 25:
+            # Keep a solid defense force
+            if available_ships < min_reserve_ships:
                 continue
 
             for target in candidate_targets:
@@ -75,33 +85,79 @@ class HeuristicScorer(BaseStrategy):
                 if curr_dist <= 0:
                     continue
 
-                if curr_dist > 55.0:
+                # Mitigate Long-Range Attack / Fleet Lock in early game
+                max_attack_dist = 55.0
+                if obs.step < 100 and len(obs.my_planets) <= 2:
+                    max_attack_dist = 35.0
+
+                if curr_dist > max_attack_dist:
                     continue
 
+                # Compute proposed ships
                 proposed_ships = max(target.ships + 2, int(available_ships * 0.75))
                 proposed_ships = min(proposed_ships, available_ships - 5)
 
                 if proposed_ships <= target.ships:
                     continue
+
                 est_speed = self.estimate_fleet_speed(proposed_ships)
-                est_turns = int(math.ceil(curr_dist / est_speed))
-                arrival_step = obs.step + est_turns
-                try:
-                    predicted_pos = get_planet_position_at_step(
-                        target.id,
-                        arrival_step,
+
+                # Iterative orbital targeting loop (search for exact collision time t)
+                best_t = None
+                min_diff = float("inf")
+                best_pred_pos = None
+
+                for t in range(1, 80):
+                    arrival_step = obs.step + t
+                    try:
+                        pred_pos = get_planet_position_at_step(
+                            target.id,
+                            arrival_step,
+                            obs.initial_planets,
+                            obs.angular_velocity,
+                        )
+                    except ValueError:
+                        pred_pos = (target.x, target.y)
+
+                    dist = distance((mine.x, mine.y), pred_pos)
+                    travel_turns = dist / est_speed
+                    diff = abs(travel_turns - t)
+                    if diff < min_diff:
+                        min_diff = diff
+                        best_t = t
+                        best_pred_pos = pred_pos
+
+                predicted_pos = best_pred_pos
+                travel_turns = max(1, int(math.ceil(distance((mine.x, mine.y), predicted_pos) / est_speed)))
+
+                # Sun collision check
+                if intersects_sun(mine.x, mine.y, predicted_pos[0], predicted_pos[1]):
+                    continue
+
+                # Obstacle planet collision check (Ray Casting)
+                obstacle_collision = False
+                for other_p in obs.all_planets.values():
+                    if other_p.id == mine.id or other_p.id == target.id:
+                        continue
+                    if intersects_planet(
+                        mine.x,
+                        mine.y,
+                        predicted_pos[0],
+                        predicted_pos[1],
+                        other_p.id,
                         obs.initial_planets,
                         obs.angular_velocity,
-                    )
-                except ValueError:
-                    predicted_pos = (target.x, target.y)
+                        obs.step,
+                        travel_turns,
+                    ):
+                        obstacle_collision = True
+                        break
 
-                if intersects_sun(mine.x, mine.y, predicted_pos[0], predicted_pos[1]):
+                if obstacle_collision:
                     continue
 
                 pred_dist = distance((mine.x, mine.y), predicted_pos)
                 angle = math.atan2(predicted_pos[1] - mine.y, predicted_pos[0] - mine.x)
-                travel_turns = max(1, int(math.ceil(pred_dist / est_speed)))
 
                 if target.owner == -1 or target.id in obs.comet_planet_ids:
                     predicted_garrison = target.ships

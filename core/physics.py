@@ -2,7 +2,7 @@ import math
 from typing import Tuple, List, Union
 
 CENTER = 50.0
-SUN_RADIUS = 10.0
+SUN_RADIUS = 10.5
 ROTATION_RADIUS_LIMIT = 50.0
 
 
@@ -32,7 +32,7 @@ def intersects_sun(
 ) -> bool:
     """
     Check if a straight line trajectory from start to target intersects
-    the deadly central sun at (50, 50) with radius 10.
+    the deadly central sun at (50, 50) with radius 10.5 (safe margin).
     """
     sun_pos = (CENTER, CENTER)
     traj_distance = point_to_segment_distance(
@@ -54,7 +54,11 @@ def get_planet_position_at_step(
     if planet is None:
         raise ValueError(f"Planet ID {planet_id} not found in initial planets.")
 
-    _, _, init_x, init_y, radius, _, _ = planet
+    # Support both namedtuple and list
+    if hasattr(planet, "x"):
+        init_x, init_y, radius = planet.x, planet.y, planet.radius
+    else:
+        init_x, init_y, radius = planet[2], planet[3], planet[4]
 
     dx = init_x - CENTER
     dy = init_y - CENTER
@@ -68,3 +72,49 @@ def get_planet_position_at_step(
         return (new_x, new_y)
 
     return (init_x, init_y)
+
+
+def intersects_planet(
+    start_x: float,
+    start_y: float,
+    target_x: float,
+    target_y: float,
+    obstacle_id: int,
+    initial_planets: List[List[Union[int, float]]],
+    angular_velocity: float,
+    start_step: int,
+    travel_turns: int,
+) -> bool:
+    """
+    Check if a straight line trajectory from start to target intersects
+    with a moving or static intermediate planet during the travel period.
+    """
+    # Sample collision at the start, middle, and end steps of the travel period
+    steps_to_check = [start_step, start_step + travel_turns // 2, start_step + travel_turns]
+
+    # Get radius of the obstacle
+    planet = next((p for p in initial_planets if p[0] == obstacle_id), None)
+    if planet is None:
+        return False
+
+    # Support both namedtuple and list
+    if hasattr(planet, "radius"):
+        radius = planet.radius
+    else:
+        radius = planet[4]
+
+    for step in steps_to_check:
+        try:
+            obs_pos = get_planet_position_at_step(
+                obstacle_id, step, initial_planets, angular_velocity
+            )
+        except ValueError:
+            continue
+
+        dist = point_to_segment_distance(
+            obs_pos, (start_x, start_y), (target_x, target_y)
+        )
+        if dist < radius + 0.2:
+            return True
+
+    return False
