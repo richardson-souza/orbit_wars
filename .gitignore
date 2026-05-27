@@ -1,0 +1,18 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Submission artifacts
+submission.py
+submission.tar.gz
+
+# Local replays and debug data
+docs/replays/
