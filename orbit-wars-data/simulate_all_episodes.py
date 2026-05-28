@@ -9,7 +9,6 @@ def run_simulation_benchmarks():
     print("=" * 90)
     print("Evaluating: 1. Improved Heuristic (main.py)")
     print("            2. Elite Tactician (elite_main.py)")
-    print("            3. Reinforcement Learning PPO (ppo_main.py)")
     print("Against baseline 'starter' agent on all historical seeds.")
     print("-" * 90)
 
@@ -17,7 +16,6 @@ def run_simulation_benchmarks():
     
     heur_wins = 0
     elite_wins = 0
-    ppo_wins = 0
     total_played = 0
 
     results = []
@@ -84,39 +82,20 @@ def run_simulation_benchmarks():
         else:
             elite_outcome = "TIE"
             
-        # 3. Run PPO Agent
-        ppo_agents = ["ppo_main.py"] + ["starter"] * (num_agents - 1)
-        env_ppo = make("orbit_wars", configuration={"seed": seed, "episodeSteps": 500}, debug=False)
-        env_ppo.run(ppo_agents)
-        
-        final_ppo = env_ppo.steps[-1]
-        ppo_reward = final_ppo[0].get("reward", -1)
-        ppo_opp_rewards = [final_ppo[i].get("reward", -1) for i in range(1, num_agents)]
-        
-        if ppo_reward == 1 and all(r == -1 for r in ppo_opp_rewards):
-            ppo_outcome = "WIN"
-            ppo_wins += 1
-        elif ppo_reward == -1:
-            ppo_outcome = "LOSS"
-        else:
-            ppo_outcome = "TIE"
-            
         total_played += 1
         
-        print(f"Episode {episode_id:8s} ({num_agents}p) | Seed: {seed:10d} | Orig: {original_outcome:4s} | Heur: {heur_outcome:4s} | Elite: {elite_outcome:5s} | PPO: {ppo_outcome:4s}")
+        print(f"Episode {episode_id:8s} ({num_agents}p) | Seed: {seed:10d} | Orig: {original_outcome:4s} | Heur: {heur_outcome:4s} | Elite: {elite_outcome:5s}")
         results.append({
             "episode": episode_id,
             "players": num_agents,
             "seed": seed,
             "original": original_outcome,
             "heuristic": heur_outcome,
-            "elite": elite_outcome,
-            "ppo": ppo_outcome
+            "elite": elite_outcome
         })
 
     heur_win_rate = (heur_wins / total_played) * 100
     elite_win_rate = (elite_wins / total_played) * 100
-    ppo_win_rate = (ppo_wins / total_played) * 100
     
     print("\n" + "=" * 90)
     print("                      AGGREGATED ARENA RESULTS COMPARISON")
@@ -125,11 +104,9 @@ def run_simulation_benchmarks():
     print(f"Original Win Rate:            {(sum(1 for r in results if r['original'] == 'WIN') / total_played) * 100:.1f}%")
     print(f"Improved Heuristic Win Rate:  {heur_win_rate:.1f}% ({heur_wins} Wins)")
     print(f"Elite Tactician Win Rate:     {elite_win_rate:.1f}% ({elite_wins} Wins)")
-    print(f"Reinforcement Learning PPO:   {ppo_win_rate:.1f}% ({ppo_wins} Wins)")
     print("-" * 90)
     print(f"Heuristic Delta:             {heur_win_rate - (sum(1 for r in results if r['original'] == 'WIN') / total_played) * 100:+.1f}%")
     print(f"Elite Tactician Delta:        {elite_win_rate - (sum(1 for r in results if r['original'] == 'WIN') / total_played) * 100:+.1f}%")
-    print(f"PPO RL Delta:                 {ppo_win_rate - (sum(1 for r in results if r['original'] == 'WIN') / total_played) * 100:+.1f}%")
     print("=" * 90)
 
 if __name__ == "__main__":
