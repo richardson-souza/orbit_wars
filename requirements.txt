@@ -1,2 +1,2 @@
-kaggle-environments==1.18.0
+kaggle-environments
 pytest
