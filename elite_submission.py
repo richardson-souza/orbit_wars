@@ -271,6 +271,7 @@ class EliteTactician(BaseStrategy):
         # Stateful tracking for Coordinated Time-on-Target (ToT) attacks
         self.active_tot_attacks: Dict[int, Tuple[int, int]] = {}  # target_id -> (arrival_step, total_ships_to_send)
         self.tot_assignments: Dict[Tuple[int, int], int] = {}     # (target_id, source_id) -> ships_to_send
+        self.sent_fleets_tracker: Dict[int, int] = {}             # target_id -> arrival_step for classic launches
 
     def estimate_fleet_speed(self, num_ships: int) -> float:
         """
@@ -304,6 +305,11 @@ class EliteTactician(BaseStrategy):
             (tid, sid): ships
             for (tid, sid), ships in self.tot_assignments.items()
             if tid in self.active_tot_attacks
+        }
+        self.sent_fleets_tracker = getattr(self, "sent_fleets_tracker", {})
+        self.sent_fleets_tracker = {
+            pid: arr_step for pid, arr_step in self.sent_fleets_tracker.items()
+            if obs.step < arr_step
         }
 
         if not obs.my_planets:
@@ -342,8 +348,8 @@ class EliteTactician(BaseStrategy):
 
                 enemy_sum = sum(f.ships for f in fleets)
                 if enemy_sum > projected_garrison:
-                    # Overwhelming threat detected! If impact is next turn, trigger evacuation!
-                    if arr_step - obs.step == 1:
+                    # Overwhelming threat detected! If impact is <= 1 turns, trigger evacuation!
+                    if arr_step - obs.step <= 1:
                         evacuating_planets[mine.id] = mine.ships
                         break
 
@@ -359,6 +365,9 @@ class EliteTactician(BaseStrategy):
                 if other.id == source_id:
                     continue
                 if other.id in evacuating_planets:
+                    continue
+                # Ray-cast check to prevent defensive evacuation suicide into the Sun!
+                if intersects_sun(mine.x, mine.y, other.x, other.y):
                     continue
                 dist = distance((mine.x, mine.y), (other.x, other.y))
                 if dist < min_dist:
@@ -401,8 +410,8 @@ class EliteTactician(BaseStrategy):
             speed = self.estimate_fleet_speed(ships)
             est_turns = int(math.ceil(dist / speed))
 
-            # Launch today if we are exactly at the correct synchronized step!
-            if est_turns == turns_remaining:
+            # Launch today if we are exactly at or past the correct synchronized step window!
+            if est_turns >= turns_remaining:
                 angle = math.atan2(pred_pos[1] - mine.y, pred_pos[0] - mine.x)
                 # Check Sun or Planet Collision
                 if not intersects_sun(mine.x, mine.y, pred_pos[0], pred_pos[1]):
@@ -420,7 +429,9 @@ class EliteTactician(BaseStrategy):
                     if not obstacle_collision:
                         moves.append([source_id, angle, ships])
                         planet_ships[source_id] -= ships
-                        del self.tot_assignments[(target_id, source_id)]
+                
+                # Prevent deadlock: if the launch window reached, remove assignment in any case!
+                del self.tot_assignments[(target_id, source_id)]
 
         # ----------------------------------------------------
         # 4. INITIALIZE NEW COORDINATED ToT ATTACKS
@@ -438,131 +449,117 @@ class EliteTactician(BaseStrategy):
             if target.id in self.active_tot_attacks:
                 continue
 
-            best_source: Planet = None
-            best_score: float = -float("inf")
             max_attack_dist = 55.0
             if obs.step < 100 and len(obs.my_planets) <= 2:
                 max_attack_dist = 35.0
 
-            # Rank candidate launchers
-            valid_launchers: List[Tuple[Planet, float, int]] = []  # (source, distance, transit_turns)
-            for mine in obs.my_planets:
-                if mine.id in evacuating_planets:
-                    continue
-                available_ships = planet_ships.get(mine.id, 0)
+            best_arrival_step = None
+            best_launchers = []
+            best_ships_needed = 0
 
-                # Safe reserve check
-                if len(obs.my_planets) <= 1:
-                    min_reserve_ships = 5
-                elif obs.step < 100 and len(obs.my_planets) <= 2:
-                    min_reserve_ships = 12 if not is_four_player else 20
+            # Solve the Targeting Paradox: Propose a single global arrival step first, then verify launchers
+            # Using step of 2 is highly granular and twice as fast!
+            for arr_step in range(obs.step + 10, min(500, obs.step + 60), 2):
+                try:
+                    target_pos = get_planet_position_at_step(
+                        target.id, arr_step, obs.initial_planets, obs.angular_velocity
+                    )
+                except ValueError:
+                    target_pos = (target.x, target.y)
+
+                # Project target garrison at global arr_step
+                if target.owner == -1 or target.id in obs.comet_planet_ids:
+                    predicted_garrison = target.ships
                 else:
-                    min_reserve_ships = 22 if not is_four_player else 35
+                    predicted_garrison = target.ships + (arr_step - obs.step) * target.production
 
-                min_reserve_ships = min(min_reserve_ships, int(available_ships * 0.4))
-                min_reserve_ships = max(5 if len(obs.my_planets) <= 1 else 10, min_reserve_ships)
+                ships_needed = predicted_garrison + 2
+                potential_launchers = []
+                total_avail_potential = 0
 
-                available = available_ships - min_reserve_ships
-                if available <= 5:
-                    continue
-
-                curr_dist = distance((mine.x, mine.y), (target.x, target.y))
-                if curr_dist <= 0 or curr_dist > max_attack_dist:
-                    continue
-
-                # Estimate default speed
-                est_speed = self.estimate_fleet_speed(max(10, int(available * 0.75)))
-                best_t = None
-                min_diff = float("inf")
-                best_pred_pos = None
-
-                for t in range(1, 80):
-                    arrival_step = obs.step + t
-                    try:
-                        pred_pos = get_planet_position_at_step(
-                            target.id, arrival_step, obs.initial_planets, obs.angular_velocity
-                        )
-                    except ValueError:
-                        pred_pos = (target.x, target.y)
-
-                    dist = distance((mine.x, mine.y), pred_pos)
-                    travel_turns = dist / est_speed
-                    diff = abs(travel_turns - t)
-                    if diff < min_diff:
-                        min_diff = diff
-                        best_t = t
-                        best_pred_pos = pred_pos
-
-                travel_turns = max(1, int(math.ceil(distance((mine.x, mine.y), best_pred_pos) / est_speed)))
-
-                # Collision checks
-                if intersects_sun(mine.x, mine.y, best_pred_pos[0], best_pred_pos[1]):
-                    continue
-
-                obstacle_collision = False
-                for other_p in obs.all_planets.values():
-                    if other_p.id == mine.id or other_p.id == target.id:
+                for mine in obs.my_planets:
+                    if mine.id in evacuating_planets:
                         continue
-                    if intersects_planet(
-                        mine.x, mine.y, best_pred_pos[0], best_pred_pos[1], other_p.id,
-                        obs.initial_planets, obs.angular_velocity, obs.step, travel_turns
-                    ):
-                        obstacle_collision = True
-                        break
+                    available_ships = planet_ships.get(mine.id, 0)
 
-                if not obstacle_collision:
-                    valid_launchers.append((mine, curr_dist, travel_turns))
+                    # Safe reserve check
+                    if len(obs.my_planets) <= 1:
+                        min_res = 5
+                    elif obs.step < 100 and len(obs.my_planets) <= 2:
+                        min_res = 12 if not is_four_player else 20
+                    else:
+                        min_res = 22 if not is_four_player else 35
+                    min_res = min(min_res, int(available_ships * 0.4))
+                    min_res = max(5 if len(obs.my_planets) <= 1 else 10, min_res)
 
-            if not valid_launchers:
-                continue
+                    cap = max(0, available_ships - min_res)
+                    if cap <= 5:
+                        continue
 
-            # Estimate synchronized arrival step based on maximum transit time among launchers
-            max_turns = max(x[2] for x in valid_launchers)
-            arrival_step = obs.step + max_turns
+                    curr_dist = distance((mine.x, mine.y), (target.x, target.y))
+                    if curr_dist <= 0 or curr_dist > max_attack_dist:
+                        continue
 
-            # Project target garrison at synchronized arrival_step
-            if target.owner == -1 or target.id in obs.comet_planet_ids:
-                predicted_garrison = target.ships
-            else:
-                predicted_garrison = target.ships + max_turns * target.production
+                    # Estimate travel speed using cap
+                    est_speed = self.estimate_fleet_speed(max(10, int(cap * 0.75)))
+                    dist_to_pred = distance((mine.x, mine.y), target_pos)
+                    travel_turns = int(math.ceil(dist_to_pred / est_speed))
 
-            ships_needed = predicted_garrison + 2
+                    # Can it arrive exactly at the scheduled global step?
+                    if travel_turns <= (arr_step - obs.step):
+                        # Cheap Sun collision check
+                        if intersects_sun(mine.x, mine.y, target_pos[0], target_pos[1]):
+                            continue
+                        
+                        potential_launchers.append((mine, cap, travel_turns))
+                        total_avail_potential += cap
 
-            # Calculate total available launching ships across all valid launchers
-            total_available = 0
-            launcher_caps: Dict[int, int] = {}
-            for mine, _, _ in valid_launchers:
-                available = planet_ships.get(mine.id, 0)
-                # Apply reserves
-                if len(obs.my_planets) <= 1:
-                    min_res = 5
-                elif obs.step < 100 and len(obs.my_planets) <= 2:
-                    min_res = 12 if not is_four_player else 20
-                else:
-                    min_res = 22 if not is_four_player else 35
-                min_res = min(min_res, int(available * 0.4))
-                min_res = max(5 if len(obs.my_planets) <= 1 else 10, min_res)
-                cap = max(0, available - min_res)
-                if cap > 0:
-                    launcher_caps[mine.id] = cap
-                    total_available += cap
+                # Performance Optimization: Only check expensive planet collision if we have enough potential ships!
+                if total_avail_potential >= ships_needed:
+                    valid_launchers_for_step = []
+                    total_avail_for_step = 0
 
-            # If we have enough ships in total, allocate a synchronized ToT attack!
-            if total_available >= ships_needed and total_available > 0:
-                self.active_tot_attacks[target.id] = (arrival_step, ships_needed)
-                # Allocate proportional contributions from each base
+                    for mine, cap, travel_turns in potential_launchers:
+                        obstacle_collision = False
+                        for other_p in obs.all_planets.values():
+                            if other_p.id == mine.id or other_p.id == target.id:
+                                continue
+                            launch_step = arr_step - travel_turns
+                            if intersects_planet(
+                                mine.x, mine.y, target_pos[0], target_pos[1], other_p.id,
+                                obs.initial_planets, obs.angular_velocity, launch_step, travel_turns
+                            ):
+                                obstacle_collision = True
+                                break
+
+                        if not obstacle_collision:
+                            valid_launchers_for_step.append((mine, cap))
+                            total_avail_for_step += cap
+
+                    if total_avail_for_step >= ships_needed and total_avail_for_step > 0:
+                        best_arrival_step = arr_step
+                        best_launchers = valid_launchers_for_step
+                        best_ships_needed = ships_needed
+                        break  # Eagerly select the earliest viable arrival step
+
+            # If a viable synchronized arrival step is found, allocate the stateful assignment
+            if best_arrival_step is not None:
+                self.active_tot_attacks[target.id] = (best_arrival_step, best_ships_needed)
+                total_avail = sum(x[1] for x in best_launchers)
                 allocated_total = 0
-                for mine_id, cap in launcher_caps.items():
-                    contrib = int(math.ceil(ships_needed * (cap / total_available)))
+                launcher_caps = {mine.id: cap for mine, cap in best_launchers}
+
+                for mine, cap in best_launchers:
+                    contrib = int(math.ceil(best_ships_needed * (cap / total_avail)))
                     contrib = min(contrib, cap)
                     if contrib > 0:
-                        self.tot_assignments[(target.id, mine_id)] = contrib
+                        self.tot_assignments[(target.id, mine.id)] = contrib
                         allocated_total += contrib
 
                 # Adjust rounding differences
-                if allocated_total < ships_needed and launcher_caps:
+                if allocated_total < best_ships_needed and launcher_caps:
                     strongest_id = max(launcher_caps, key=lambda k: launcher_caps[k])
-                    diff = ships_needed - allocated_total
+                    diff = best_ships_needed - allocated_total
                     self.tot_assignments[(target.id, strongest_id)] = self.tot_assignments.get((target.id, strongest_id), 0) + diff
 
         # ----------------------------------------------------
@@ -595,6 +592,10 @@ class EliteTactician(BaseStrategy):
             for target in candidate_targets:
                 # Skip targets that are already assigned to ToT to avoid redundancy
                 if (target.id, mine.id) in self.tot_assignments or target.id in self.active_tot_attacks:
+                    continue
+
+                # Skip targets that are already targeted by a classic fleet to avoid spamming
+                if target.id in self.sent_fleets_tracker:
                     continue
 
                 curr_dist = distance((mine.x, mine.y), (target.x, target.y))
@@ -704,6 +705,8 @@ class EliteTactician(BaseStrategy):
             if best_target is not None and best_ships_to_send > 0:
                 moves.append([mine.id, best_angle, best_ships_to_send])
                 planet_ships[mine.id] -= best_ships_to_send
+                # Register active flight to enforce the lock
+                self.sent_fleets_tracker[best_target.id] = obs.step + best_travel_turns
 
         return moves
 

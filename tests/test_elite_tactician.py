@@ -65,3 +65,74 @@ def test_elite_tactician_evacuation_dodge():
     assert len(evac_moves) > 0
     # Evacuate 100% of ships (10 ships)
     assert evac_moves[0][2] == 10
+
+
+def test_elite_tactician_evacuation_sun_avoidance():
+    """Verify that EliteTactician does not evacuate to a planet if the flight path intersects the Sun."""
+    # Planet 0 is our threatened planet.
+    # Planet 1 is closer but flight path to it crosses the Sun (which is at 0, 0, radius 10.5).
+    # Planet 2 is further but has a safe flight path.
+    obs_dict = {
+        "player": 0,
+        "step": 5,
+        "angular_velocity": 0.05,
+        "remainingOverageTime": 60.0,
+        "initial_planets": [
+            [0, 0, -20.0, 0.0, 2.0, 10, 2],  # My planet
+            [1, -1, 20.0, 0.0, 2.0, 5, 1],   # Closer but crosses Sun (from -20, 0 to 20, 0 passes through 0, 0)
+            [2, -1, -20.0, 30.0, 2.0, 5, 1],  # Further but safe (path -20,0 to -20,30 does not cross 0,0)
+        ],
+        "planets": [
+            [0, 0, -20.0, 0.0, 2.0, 10, 2],
+            [1, -1, 20.0, 0.0, 2.0, 5, 1],
+            [2, -1, -20.0, 30.0, 2.0, 5, 1],
+        ],
+        "fleets": [
+            [1, 1, -18.0, 0.0, 0.0, 1, 50]  # Threat heading to planet 0.
+        ],
+        "comet_planet_ids": [],
+        "comets": [],
+    }
+
+    tactician = EliteTactician()
+    moves = tactician.get_actions(obs_dict)
+
+    evac_moves = [m for m in moves if m[0] == 0]
+    assert len(evac_moves) > 0
+    # Must evacuate to planet 2, not planet 1!
+    # Expected angle from (-20, 0) to (-20, 30) is pi/2 (approx 1.57)
+    angle = evac_moves[0][1]
+    assert math.isclose(angle, math.pi / 2, abs_tol=0.1)
+
+
+def test_elite_tactician_tot_no_deadlock():
+    """Verify that ToT assignments are cleared once the arrival step is reached, preventing deadlock."""
+    tactician = EliteTactician()
+    # Add a mock assignment that has reached its window
+    tactician.active_tot_attacks[1] = (6, 20)  # Target 1, arrives at step 6
+    tactician.tot_assignments[(1, 0)] = 15      # From planet 0 to 1, send 15 ships
+
+    obs_dict = {
+        "player": 0,
+        "step": 6,  # Step matches arrival step, should trigger release/cleanup
+        "angular_velocity": 0.05,
+        "remainingOverageTime": 60.0,
+        "initial_planets": [
+            [0, 0, 10.0, 10.0, 2.0, 5, 2],  # Low ships (5) to avoid new ToT init
+            [1, -1, 20.0, 10.0, 2.0, 10, 1],
+        ],
+        "planets": [
+            [0, 0, 10.0, 10.0, 2.0, 5, 2],
+            [1, -1, 20.0, 10.0, 2.0, 10, 1],
+        ],
+        "fleets": [],
+        "comet_planet_ids": [],
+        "comets": [],
+    }
+
+    # Execute action
+    tactician.get_actions(obs_dict)
+
+    # The assignment should be removed from tot_assignments to prevent any deadlock
+    assert (1, 0) not in tactician.tot_assignments
+
