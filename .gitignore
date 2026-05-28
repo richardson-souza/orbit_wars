@@ -10,9 +10,6 @@ env/
 venv/
 ENV/
 
-# Submission artifacts
-submission.py
-submission.tar.gz
 
 # Local replays and debug data
 docs/replays/
