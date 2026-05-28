@@ -46,9 +46,7 @@ class HeuristicScorer(BaseStrategy):
 
         planet_ships = {p.id: p.ships for p in obs.my_planets}
 
-        # Stateful sent fleets tracker: persistent in memory to prevent duplicate targeting
         self.sent_fleets_tracker = getattr(self, "sent_fleets_tracker", {})
-        # Cleanup past arrival steps to avoid memory leaks
         self.sent_fleets_tracker = {pid: arr_step for pid, arr_step in self.sent_fleets_tracker.items() if obs.step < arr_step}
 
         candidate_targets: List[Planet] = []
@@ -59,7 +57,6 @@ class HeuristicScorer(BaseStrategy):
         if not candidate_targets or not obs.my_planets:
             return moves
 
-        # Dynamic detection of 4-player games
         owners = {p.owner for p in obs.my_planets + obs.enemy_planets if p.owner != -1}
         is_four_player = len(owners) > 2
 
@@ -72,35 +69,25 @@ class HeuristicScorer(BaseStrategy):
 
             available_ships = planet_ships.get(mine.id, 0)
 
-            # Dynamic defensive reserve calculation per planet
             if len(obs.my_planets) <= 1:
-                # Starting home planet: keep a minimum of 5 ships for sanity defense, use the rest to expand
                 min_reserve_ships = 5
             elif obs.step < 100 and len(obs.my_planets) <= 2:
-                # Early game expansion phase
                 min_reserve_ships = 12 if not is_four_player else 20
             else:
-                # Mid/Late game established phase
                 min_reserve_ships = 22 if not is_four_player else 35
 
-            # Never freeze more than 40% of the planet's available forces
             min_reserve_ships = min(min_reserve_ships, int(available_ships * 0.4))
-            # Minimum absolute defense boundary
             min_reserve_ships = max(5 if len(obs.my_planets) <= 1 else 10, min_reserve_ships)
-
-            # Keep a solid defense force
             if available_ships < min_reserve_ships:
                 continue
 
             for target in candidate_targets:
-                # Do not launch duplicate attacks to the same target if we already have a fleet en route
                 if target.id in self.sent_fleets_tracker:
                     continue
                 curr_dist = distance((mine.x, mine.y), (target.x, target.y))
                 if curr_dist <= 0:
                     continue
 
-                # Mitigate Long-Range Attack / Fleet Lock in early game
                 max_attack_dist = 55.0
                 if obs.step < 100 and len(obs.my_planets) <= 2:
                     max_attack_dist = 35.0
@@ -108,7 +95,6 @@ class HeuristicScorer(BaseStrategy):
                 if curr_dist > max_attack_dist:
                     continue
 
-                # Compute proposed ships
                 proposed_ships = max(target.ships + 2, int(available_ships * 0.75))
                 proposed_ships = min(proposed_ships, available_ships - 5)
 
@@ -117,7 +103,6 @@ class HeuristicScorer(BaseStrategy):
 
                 est_speed = self.estimate_fleet_speed(proposed_ships)
 
-                # Iterative orbital targeting loop (search for exact collision time t)
                 best_t = None
                 min_diff = float("inf")
                 best_pred_pos = None
@@ -145,11 +130,9 @@ class HeuristicScorer(BaseStrategy):
                 predicted_pos = best_pred_pos
                 travel_turns = max(1, int(math.ceil(distance((mine.x, mine.y), predicted_pos) / est_speed)))
 
-                # Sun collision check
                 if intersects_sun(mine.x, mine.y, predicted_pos[0], predicted_pos[1]):
                     continue
 
-                # Obstacle planet collision check (Ray Casting)
                 obstacle_collision = False
                 for other_p in obs.all_planets.values():
                     if other_p.id == mine.id or other_p.id == target.id:
@@ -208,7 +191,6 @@ class HeuristicScorer(BaseStrategy):
             if best_target is not None and best_ships_to_send > 0:
                 moves.append([mine.id, best_angle, best_ships_to_send])
                 planet_ships[mine.id] -= best_ships_to_send
-                # Register target tracking until the fleet arrives
                 self.sent_fleets_tracker[best_target.id] = obs.step + best_travel_turns
 
         return moves
