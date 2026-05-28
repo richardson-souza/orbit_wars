@@ -46,7 +46,10 @@ class HeuristicScorer(BaseStrategy):
 
         planet_ships = {p.id: p.ships for p in obs.my_planets}
 
-        planets_with_outgoing_fleets = {f.from_planet_id for f in obs.my_fleets}
+        # Stateful sent fleets tracker: persistent in memory to prevent duplicate targeting
+        self.sent_fleets_tracker = getattr(self, "sent_fleets_tracker", {})
+        # Cleanup past arrival steps to avoid memory leaks
+        self.sent_fleets_tracker = {pid: arr_step for pid, arr_step in self.sent_fleets_tracker.items() if obs.step < arr_step}
 
         candidate_targets: List[Planet] = []
         candidate_targets.extend(obs.enemy_planets)
@@ -60,27 +63,39 @@ class HeuristicScorer(BaseStrategy):
         owners = {p.owner for p in obs.my_planets + obs.enemy_planets if p.owner != -1}
         is_four_player = len(owners) > 2
 
-        # Min reserve ships (defense budget)
-        min_reserve_ships = 25
-        if is_four_player:
-            min_reserve_ships = 40
-
         for mine in obs.my_planets:
-            if mine.id in planets_with_outgoing_fleets:
-                continue
-
             best_target: Planet = None
             best_score: float = -float("inf")
             best_ships_to_send: int = 0
             best_angle: float = 0.0
+            best_travel_turns: int = 0
 
             available_ships = planet_ships.get(mine.id, 0)
+
+            # Dynamic defensive reserve calculation per planet
+            if len(obs.my_planets) <= 1:
+                # Starting home planet: keep a minimum of 5 ships for sanity defense, use the rest to expand
+                min_reserve_ships = 5
+            elif obs.step < 100 and len(obs.my_planets) <= 2:
+                # Early game expansion phase
+                min_reserve_ships = 12 if not is_four_player else 20
+            else:
+                # Mid/Late game established phase
+                min_reserve_ships = 22 if not is_four_player else 35
+
+            # Never freeze more than 40% of the planet's available forces
+            min_reserve_ships = min(min_reserve_ships, int(available_ships * 0.4))
+            # Minimum absolute defense boundary
+            min_reserve_ships = max(5 if len(obs.my_planets) <= 1 else 10, min_reserve_ships)
 
             # Keep a solid defense force
             if available_ships < min_reserve_ships:
                 continue
 
             for target in candidate_targets:
+                # Do not launch duplicate attacks to the same target if we already have a fleet en route
+                if target.id in self.sent_fleets_tracker:
+                    continue
                 curr_dist = distance((mine.x, mine.y), (target.x, target.y))
                 if curr_dist <= 0:
                     continue
@@ -188,9 +203,12 @@ class HeuristicScorer(BaseStrategy):
                     best_target = target
                     best_ships_to_send = proposed_ships
                     best_angle = angle
+                    best_travel_turns = travel_turns
 
             if best_target is not None and best_ships_to_send > 0:
                 moves.append([mine.id, best_angle, best_ships_to_send])
                 planet_ships[mine.id] -= best_ships_to_send
+                # Register target tracking until the fleet arrives
+                self.sent_fleets_tracker[best_target.id] = obs.step + best_travel_turns
 
         return moves
