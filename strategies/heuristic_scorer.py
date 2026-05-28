@@ -274,24 +274,20 @@ class HeuristicScorer(BaseStrategy):
                     if available_ships < proposed_ships + 5:
                         continue
 
-                # Dynamic ROI formula
-                enemy_multiplier = 2.0 if target.owner != -1 and not is_defense else 1.0
-                econ_value = target.production * enemy_multiplier
-                efficiency = econ_value / max(1, proposed_ships)
-
-                score = (
-                    self.production_weight * econ_value * (0.3 + 0.7 * efficiency)
-                    - self.distance_weight * pred_dist
-                )
+                if is_defense:
+                    score = 250.0 + target.production * 15.0 - pred_dist * 2.0
+                else:
+                    score = (
+                        self.production_weight * target.production
+                        - self.distance_weight * pred_dist
+                        - self.ship_cost_weight * proposed_ships
+                    )
 
                 if is_vulturing:
                     score += 45.0
 
                 if target.id in obs.comet_planet_ids:
                     score += self.comet_bonus
-
-                if is_defense:
-                    score = 250.0 + target.production * 15.0 - pred_dist * 2.0
 
                 score *= self.aggression_weight
 
