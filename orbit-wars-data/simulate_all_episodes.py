@@ -4,17 +4,19 @@ import json
 from kaggle_environments import make
 
 def run_simulation_benchmarks():
-    print("=" * 80)
+    print("=" * 90)
     print("        ORBIT WARS: MULTI-MODEL ARENA BENCHMARK COMPARISON")
-    print("=" * 80)
+    print("=" * 90)
     print("Evaluating: 1. Improved Heuristic (main.py)")
-    print("            2. Reinforcement Learning PPO (ppo_main.py)")
+    print("            2. Elite Tactician (elite_main.py)")
+    print("            3. Reinforcement Learning PPO (ppo_main.py)")
     print("Against baseline 'starter' agent on all historical seeds.")
-    print("-" * 80)
+    print("-" * 90)
 
     filepaths = sorted(glob.glob("docs/episodes/*.json"))
     
     heur_wins = 0
+    elite_wins = 0
     ppo_wins = 0
     total_played = 0
 
@@ -65,7 +67,24 @@ def run_simulation_benchmarks():
         else:
             heur_outcome = "TIE"
             
-        # 2. Run PPO Agent
+        # 2. Run Elite Tactician
+        elite_agents = ["elite_main.py"] + ["starter"] * (num_agents - 1)
+        env_elite = make("orbit_wars", configuration={"seed": seed, "episodeSteps": 500}, debug=False)
+        env_elite.run(elite_agents)
+        
+        final_elite = env_elite.steps[-1]
+        elite_reward = final_elite[0].get("reward", -1)
+        elite_opp_rewards = [final_elite[i].get("reward", -1) for i in range(1, num_agents)]
+        
+        if elite_reward == 1 and all(r == -1 for r in elite_opp_rewards):
+            elite_outcome = "WIN"
+            elite_wins += 1
+        elif elite_reward == -1:
+            elite_outcome = "LOSS"
+        else:
+            elite_outcome = "TIE"
+            
+        # 3. Run PPO Agent
         ppo_agents = ["ppo_main.py"] + ["starter"] * (num_agents - 1)
         env_ppo = make("orbit_wars", configuration={"seed": seed, "episodeSteps": 500}, debug=False)
         env_ppo.run(ppo_agents)
@@ -84,30 +103,34 @@ def run_simulation_benchmarks():
             
         total_played += 1
         
-        print(f"Episode {episode_id:8s} ({num_agents}p) | Seed: {seed:10d} | Orig: {original_outcome:4s} | Heur: {heur_outcome:4s} | PPO: {ppo_outcome:4s}")
+        print(f"Episode {episode_id:8s} ({num_agents}p) | Seed: {seed:10d} | Orig: {original_outcome:4s} | Heur: {heur_outcome:4s} | Elite: {elite_outcome:5s} | PPO: {ppo_outcome:4s}")
         results.append({
             "episode": episode_id,
             "players": num_agents,
             "seed": seed,
             "original": original_outcome,
             "heuristic": heur_outcome,
+            "elite": elite_outcome,
             "ppo": ppo_outcome
         })
 
     heur_win_rate = (heur_wins / total_played) * 100
+    elite_win_rate = (elite_wins / total_played) * 100
     ppo_win_rate = (ppo_wins / total_played) * 100
     
-    print("\n" + "=" * 80)
+    print("\n" + "=" * 90)
     print("                      AGGREGATED ARENA RESULTS COMPARISON")
-    print("=" * 80)
+    print("=" * 90)
     print(f"Total Matches Simulated:      {total_played}")
     print(f"Original Win Rate:            {(sum(1 for r in results if r['original'] == 'WIN') / total_played) * 100:.1f}%")
     print(f"Improved Heuristic Win Rate:  {heur_win_rate:.1f}% ({heur_wins} Wins)")
+    print(f"Elite Tactician Win Rate:     {elite_win_rate:.1f}% ({elite_wins} Wins)")
     print(f"Reinforcement Learning PPO:   {ppo_win_rate:.1f}% ({ppo_wins} Wins)")
-    print("-" * 80)
+    print("-" * 90)
     print(f"Heuristic Delta:             {heur_win_rate - (sum(1 for r in results if r['original'] == 'WIN') / total_played) * 100:+.1f}%")
+    print(f"Elite Tactician Delta:        {elite_win_rate - (sum(1 for r in results if r['original'] == 'WIN') / total_played) * 100:+.1f}%")
     print(f"PPO RL Delta:                 {ppo_win_rate - (sum(1 for r in results if r['original'] == 'WIN') / total_played) * 100:+.1f}%")
-    print("=" * 80)
+    print("=" * 90)
 
 if __name__ == "__main__":
     run_simulation_benchmarks()
