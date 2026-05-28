@@ -17,3 +17,11 @@ submission.tar.gz
 # Local replays and debug data
 docs/replays/
 docs/episodes/
+
+# Ignore the entire orbit-wars-data folder by default
+orbit-wars-data/*
+
+# Whitelist and track only our custom scripts
+!orbit-wars-data/train_ppo.py
+!orbit-wars-data/kaggle_train_ppo.py
+!orbit-wars-data/simulate_all_episodes.py
