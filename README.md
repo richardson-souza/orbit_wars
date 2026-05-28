@@ -50,6 +50,7 @@ Nosso projeto segue rigorosamente o ciclo de vida de desenvolvimento científico
 5. **[Avaliação](file:///home/rsouza/Projects/orbit_wars/docs/5.%20Avaliação.md)**: Resultados da nossa arena local multi-modelos e comparação estatística de seeds.
 6. **[Implantação](file:///home/rsouza/Projects/orbit_wars/docs/6.%20Implantação.md)**: Processo de submissão do agente compilado em arquivo único e governança de dados.
 7. **[Plano de Ação Tático](file:///home/rsouza/Projects/orbit_wars/docs/action_plan.md)**: Próximos passos e backlog de melhorias.
+8. **[Guia Didático de Heurística & MCTS](file:///home/rsouza/Projects/orbit_wars/docs/heuristic_and_mcts_guide.ipynb)**: Um Jupyter Notebook prático e interativo detalhando a formulação matemática e simulações das duas arquiteturas no projeto.
 
 ---
 
