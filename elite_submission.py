@@ -445,6 +445,18 @@ class EliteTactician(BaseStrategy):
         candidate_targets.extend(obs.neutral_planets)
         candidate_targets.extend(obs.active_comets)
 
+        # Prioritize targets based on production, distance penalty, comet bonus, and neutral multiplier
+        def get_target_priority(t: Planet) -> float:
+            min_d = min([distance((mine.x, mine.y), (t.x, t.y)) for mine in obs.my_planets]) if obs.my_planets else 0.0
+            score = 15.0 * t.production - 2.5 * min_d
+            if t.id in obs.comet_planet_ids:
+                score += 25.0
+            if t.owner == -1:
+                score += 15.0
+            return score
+
+        candidate_targets.sort(key=get_target_priority, reverse=True)
+
         for target in candidate_targets:
             if target.id in self.active_tot_attacks:
                 continue
