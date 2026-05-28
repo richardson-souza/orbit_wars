@@ -116,19 +116,76 @@ class MCTSSearch(BaseStrategy):
         enemy_planet_ships = {p.id: p.ships for p in obs.enemy_planets}
         neutral_planet_ships = {p.id: p.ships for p in obs.neutral_planets}
 
+        # Apply candidate actions immediately
         for action in candidate_actions:
             from_id, _, ships = action
             ships = int(ships)
             if from_id in my_planet_ships:
                 my_planet_ships[from_id] = max(0, my_planet_ships[from_id] - ships)
 
+        # Estimate incoming fleets' arrivals
+        fleet_impacts: Dict[int, List[Tuple[int, int]]] = {} # step_offset -> list of (planet_id, owner, ships)
+        for fleet in obs.all_fleets:
+            target_planet = self.heuristic.estimate_fleet_target(fleet, list(obs.all_planets.values()))
+            if target_planet:
+                dist = distance((fleet.x, fleet.y), (target_planet.x, target_planet.y))
+                speed = self.heuristic.estimate_fleet_speed(fleet.ships)
+                arr_offset = int(math.ceil(dist / speed))
+                
+                if 1 <= arr_offset <= self.simulation_depth:
+                    if arr_offset not in fleet_impacts:
+                        fleet_impacts[arr_offset] = []
+                    fleet_impacts[arr_offset].append((target_planet.id, fleet.owner, fleet.ships))
+
+        # Forward simulate step-by-step
         for step_offset in range(1, self.simulation_depth + 1):
-            for pid in my_planet_ships:
+            # 1. Grow production
+            for pid in list(my_planet_ships.keys()):
                 p = obs.all_planets[pid]
                 my_planet_ships[pid] += p.production
-            for pid in enemy_planet_ships:
+            for pid in list(enemy_planet_ships.keys()):
                 p = obs.all_planets[pid]
                 enemy_planet_ships[pid] += p.production
+
+            # 2. Resolve incoming fleet impacts at this step
+            if step_offset in fleet_impacts:
+                for pid, owner, ships in fleet_impacts[step_offset]:
+                    if owner == obs.player:
+                        # Our fleet
+                        if pid in my_planet_ships:
+                            my_planet_ships[pid] += ships
+                        elif pid in enemy_planet_ships:
+                            if ships > enemy_planet_ships[pid]:
+                                ships_left = ships - enemy_planet_ships[pid]
+                                enemy_planet_ships.pop(pid)
+                                my_planet_ships[pid] = ships_left
+                            else:
+                                enemy_planet_ships[pid] -= ships
+                        elif pid in neutral_planet_ships:
+                            if ships > neutral_planet_ships[pid]:
+                                ships_left = ships - neutral_planet_ships[pid]
+                                neutral_planet_ships.pop(pid)
+                                my_planet_ships[pid] = ships_left
+                            else:
+                                neutral_planet_ships[pid] -= ships
+                    else:
+                        # Enemy fleet
+                        if pid in enemy_planet_ships:
+                            enemy_planet_ships[pid] += ships
+                        elif pid in my_planet_ships:
+                            if ships > my_planet_ships[pid]:
+                                ships_left = ships - my_planet_ships[pid]
+                                my_planet_ships.pop(pid)
+                                enemy_planet_ships[pid] = ships_left
+                            else:
+                                my_planet_ships[pid] -= ships
+                        elif pid in neutral_planet_ships:
+                            if ships > neutral_planet_ships[pid]:
+                                ships_left = ships - neutral_planet_ships[pid]
+                                neutral_planet_ships.pop(pid)
+                                enemy_planet_ships[pid] = ships_left
+                            else:
+                                neutral_planet_ships[pid] -= ships
 
         total_my_ships = sum(my_planet_ships.values())
         total_enemy_ships = sum(enemy_planet_ships.values())
