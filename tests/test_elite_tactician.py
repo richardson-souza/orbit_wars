@@ -51,7 +51,7 @@ def test_elite_tactician_evacuation_dodge():
             [1, -1, 30.0, 10.0, 2.0, 5, 1],
         ],
         "fleets": [
-            [1, 1, 12.0, 10.0, 0.0, 1, 50]  # Owner 1, 50 ships. Arrives next turn (dist = 2, speed = 3.13).
+            [1, 1, 13.13, 10.0, 3.1415926535, 1, 50]  # Heading left to land exactly at (10,10) on step 6.
         ],
         "comet_planet_ids": [],
         "comets": [],
@@ -88,7 +88,7 @@ def test_elite_tactician_evacuation_sun_avoidance():
             [2, -1, -20.0, 30.0, 2.0, 5, 1],
         ],
         "fleets": [
-            [1, 1, -18.0, 0.0, 0.0, 1, 50]  # Threat heading to planet 0.
+            [1, 1, -16.87, 0.0, 3.1415926535, 1, 50]  # Heading left to land exactly at (-20,0) on step 6.
         ],
         "comet_planet_ids": [],
         "comets": [],

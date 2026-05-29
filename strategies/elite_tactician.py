@@ -13,17 +13,23 @@ class EliteTactician(BaseStrategy):
 
     def __init__(
         self,
-        production_weight: float = 15.0,
-        distance_weight: float = 0.7,
+        production_weight: float = 12.0,
+        distance_weight: float = 3.5,
         ship_cost_weight: float = 0.1,
         comet_bonus: float = 25.0,
-        aggression_weight: float = 1.5,
+        aggression_weight: float = 1.0,
     ):
         self.production_weight = production_weight
         self.distance_weight = distance_weight
         self.ship_cost_weight = ship_cost_weight
         self.comet_bonus = comet_bonus
         self.aggression_weight = aggression_weight
+
+        # Hyperparameters calibrated via typeIIIfairy reverse-engineering
+        self.evacuation_trigger: int = 4        # T-4 / T-3 ticks trigger window to avoid engine desync
+        self.hoarding_constant: float = 6.0     # min_res = production * 6.0 (Defesa Proporcional)
+        self.tot_min_turns: int = 15            # Goldilocks ToT travel window minimum
+        self.tot_max_turns: int = 45            # Goldilocks ToT travel window maximum
 
         # Stateful tracking for Coordinated Time-on-Target (ToT) attacks
         self.active_tot_attacks: Dict[int, Tuple[int, int]] = {}  # target_id -> (arrival_step, total_ships_to_send)
@@ -85,9 +91,25 @@ class EliteTactician(BaseStrategy):
                 dist = distance((fleet.x, fleet.y), (mine.x, mine.y))
                 speed = self.estimate_fleet_speed(fleet.ships)
                 arr_step = obs.step + int(math.ceil(dist / speed))
-                if arr_step not in incoming_threats:
-                    incoming_threats[arr_step] = []
-                incoming_threats[arr_step].append(fleet)
+
+                # 100% Precise Trajectory Intersection Check
+                try:
+                    mine_pos_at_arr = get_planet_position_at_step(
+                        mine.id, arr_step, obs.initial_planets, obs.angular_velocity
+                    )
+                except ValueError:
+                    mine_pos_at_arr = (mine.x, mine.y)
+
+                vel_x = math.cos(fleet.angle)
+                vel_y = math.sin(fleet.angle)
+                fleet_x_at_arr = fleet.x + (arr_step - obs.step) * vel_x * speed
+                fleet_y_at_arr = fleet.y + (arr_step - obs.step) * vel_y * speed
+
+                dist_at_arr = distance((fleet_x_at_arr, fleet_y_at_arr), mine_pos_at_arr)
+                if dist_at_arr < 2.0:  # 100% precise landing collision!
+                    if arr_step not in incoming_threats:
+                        incoming_threats[arr_step] = []
+                    incoming_threats[arr_step].append(fleet)
 
             # Analyze threats by arrival steps
             for arr_step, fleets in sorted(incoming_threats.items()):
@@ -105,10 +127,11 @@ class EliteTactician(BaseStrategy):
 
                 enemy_sum = sum(f.ships for f in fleets)
                 if enemy_sum > projected_garrison:
-                    # Overwhelming threat detected! If impact is <= 1 turns, trigger evacuation!
-                    if arr_step - obs.step <= 1:
-                        evacuating_planets[mine.id] = mine.ships
-                        break
+                    # Standing Our Ground (Game Theory Guard): only evacuate if we are weak or vastly outnumbered
+                    if projected_garrison < 15 or enemy_sum > projected_garrison * 2.0:
+                        if arr_step - obs.step <= self.evacuation_trigger:
+                            evacuating_planets[mine.id] = mine.ships
+                            break
 
         # Process evacuations immediately to save our fleets
         for source_id, ships_to_evacuate in evacuating_planets.items():
@@ -193,6 +216,9 @@ class EliteTactician(BaseStrategy):
         # ----------------------------------------------------
         # 4. INITIALIZE NEW COORDINATED ToT ATTACKS
         # ----------------------------------------------------
+        # Disable ToT in early game or when we have very few planets to avoid locking up critical early expansion force
+        enable_tot = len(obs.my_planets) >= 3 or obs.step >= 120
+
         owners = {p.owner for p in obs.my_planets + obs.enemy_planets if p.owner != -1}
         is_four_player = len(owners) > 2
 
@@ -215,6 +241,8 @@ class EliteTactician(BaseStrategy):
         candidate_targets.sort(key=get_target_priority, reverse=True)
 
         for target in candidate_targets:
+            if not enable_tot:
+                break
             if target.id in self.active_tot_attacks:
                 continue
 
@@ -228,7 +256,7 @@ class EliteTactician(BaseStrategy):
 
             # Solve the Targeting Paradox: Propose a single global arrival step first, then verify launchers
             # Using step of 2 is highly granular and twice as fast!
-            for arr_step in range(obs.step + 10, min(500, obs.step + 60), 2):
+            for arr_step in range(obs.step + self.tot_min_turns, min(500, obs.step + self.tot_max_turns), 2):
                 try:
                     target_pos = get_planet_position_at_step(
                         target.id, arr_step, obs.initial_planets, obs.angular_velocity
@@ -251,15 +279,15 @@ class EliteTactician(BaseStrategy):
                         continue
                     available_ships = planet_ships.get(mine.id, 0)
 
-                    # Safe reserve check
+                    # Dynamic Proportional Garrison Hoarding: safe reserve scales with game phase and value
                     if len(obs.my_planets) <= 1:
                         min_res = 5
-                    elif obs.step < 100 and len(obs.my_planets) <= 2:
-                        min_res = 12 if not is_four_player else 20
+                    elif len(obs.my_planets) <= 2 and obs.step < 120:
+                        min_res = 12 if not is_four_player else 18
                     else:
-                        min_res = 22 if not is_four_player else 35
-                    min_res = min(min_res, int(available_ships * 0.4))
-                    min_res = max(5 if len(obs.my_planets) <= 1 else 10, min_res)
+                        min_res = int(mine.production * self.hoarding_constant)
+                        min_res = max(8, min_res)
+                    min_res = min(min_res, int(available_ships * 0.45))
 
                     cap = max(0, available_ships - min_res)
                     if cap <= 5:
@@ -334,20 +362,23 @@ class EliteTactician(BaseStrategy):
         # ----------------------------------------------------
         # 5. EXECUTE SINGLE-SOURCE CLASSIC LAUNCHES FOR SPARE SHIPS
         # ----------------------------------------------------
+        current_dist_weight = self.distance_weight
+
         for mine in obs.my_planets:
             if mine.id in evacuating_planets:
                 continue
 
             available_ships = planet_ships.get(mine.id, 0)
+            
+            # Dynamic Proportional Garrison Hoarding: safe reserve scales with game phase and value
             if len(obs.my_planets) <= 1:
                 min_reserve_ships = 5
-            elif obs.step < 100 and len(obs.my_planets) <= 2:
-                min_reserve_ships = 12 if not is_four_player else 20
+            elif len(obs.my_planets) <= 2 and obs.step < 120:
+                min_reserve_ships = 12 if not is_four_player else 18
             else:
-                min_reserve_ships = 22 if not is_four_player else 35
-
-            min_reserve_ships = min(min_reserve_ships, int(available_ships * 0.4))
-            min_reserve_ships = max(5 if len(obs.my_planets) <= 1 else 10, min_reserve_ships)
+                min_reserve_ships = int(mine.production * self.hoarding_constant)
+                min_reserve_ships = max(8, min_reserve_ships)
+            min_reserve_ships = min(min_reserve_ships, int(available_ships * 0.45))
 
             if available_ships < min_reserve_ships:
                 continue
@@ -455,7 +486,7 @@ class EliteTactician(BaseStrategy):
 
                 score = (
                     self.production_weight * target.production
-                    - self.distance_weight * pred_dist
+                    - current_dist_weight * pred_dist
                     - self.ship_cost_weight * proposed_ships
                 )
 
