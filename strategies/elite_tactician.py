@@ -116,6 +116,7 @@ class EliteTactician(BaseStrategy):
                 # Project garrison
                 turns = arr_step - obs.step
                 projected_garrison = mine.ships + turns * mine.production
+                
                 # Add incoming allied reinforcements
                 for f in obs.all_fleets:
                     if f.owner == obs.player:
@@ -123,7 +124,22 @@ class EliteTactician(BaseStrategy):
                         speed_a = self.estimate_fleet_speed(f.ships)
                         arr_step_a = obs.step + int(math.ceil(dist_a / speed_a))
                         if arr_step_a <= arr_step:
-                            projected_garrison += f.ships
+                            # 100% Precise trajectory intersection check for reinforcement
+                            try:
+                                mine_pos_at_arr_a = get_planet_position_at_step(
+                                    mine.id, arr_step_a, obs.initial_planets, obs.angular_velocity
+                                )
+                            except ValueError:
+                                mine_pos_at_arr_a = (mine.x, mine.y)
+
+                            vel_xa = math.cos(f.angle)
+                            vel_ya = math.sin(f.angle)
+                            fleet_xa_at_arr = f.x + (arr_step_a - obs.step) * vel_xa * speed_a
+                            fleet_ya_at_arr = f.y + (arr_step_a - obs.step) * vel_ya * speed_a
+
+                            dist_at_arr_a = distance((fleet_xa_at_arr, fleet_ya_at_arr), mine_pos_at_arr_a)
+                            if dist_at_arr_a < 2.0:
+                                projected_garrison += f.ships
 
                 enemy_sum = sum(f.ships for f in fleets)
                 if enemy_sum > projected_garrison:
@@ -217,7 +233,7 @@ class EliteTactician(BaseStrategy):
         # 4. INITIALIZE NEW COORDINATED ToT ATTACKS
         # ----------------------------------------------------
         # Disable ToT in early game or when we have very few planets to avoid locking up critical early expansion force
-        enable_tot = len(obs.my_planets) >= 3 or obs.step >= 120
+        enable_tot = len(obs.my_planets) >= 4 and obs.step >= 120
 
         owners = {p.owner for p in obs.my_planets + obs.enemy_planets if p.owner != -1}
         is_four_player = len(owners) > 2
@@ -279,13 +295,27 @@ class EliteTactician(BaseStrategy):
                         continue
                     available_ships = planet_ships.get(mine.id, 0)
 
-                    # Dynamic Proportional Garrison Hoarding: safe reserve scales with game phase and value
+                    # Threat-Aware Proportional Hoarding: safe reserve scales with game phase and proximity to enemy threats
+                    closest_enemy_dist = 500.0
+                    for other_p in obs.enemy_planets:
+                        d = distance((mine.x, mine.y), (other_p.x, other_p.y))
+                        if d < closest_enemy_dist:
+                            closest_enemy_dist = d
+                    for f in obs.all_fleets:
+                        if f.owner != obs.player:
+                            d = distance((mine.x, mine.y), (f.x, f.y))
+                            if d < closest_enemy_dist:
+                                closest_enemy_dist = d
+
+                    max_multiplier = 6.0 if is_four_player else 4.0
+                    multiplicador = max(1.0, max_multiplier - (closest_enemy_dist / 15.0))
+
                     if len(obs.my_planets) <= 1:
                         min_res = 5
                     elif len(obs.my_planets) <= 2 and obs.step < 120:
                         min_res = 12 if not is_four_player else 18
                     else:
-                        min_res = int(mine.production * self.hoarding_constant)
+                        min_res = int(mine.production * multiplicador)
                         min_res = max(8, min_res)
                     min_res = min(min_res, int(available_ships * 0.45))
 
@@ -370,13 +400,27 @@ class EliteTactician(BaseStrategy):
 
             available_ships = planet_ships.get(mine.id, 0)
             
-            # Dynamic Proportional Garrison Hoarding: safe reserve scales with game phase and value
+            # Threat-Aware Proportional Hoarding: safe reserve scales with game phase and proximity to enemy threats
+            closest_enemy_dist = 500.0
+            for other_p in obs.enemy_planets:
+                d = distance((mine.x, mine.y), (other_p.x, other_p.y))
+                if d < closest_enemy_dist:
+                    closest_enemy_dist = d
+            for f in obs.all_fleets:
+                if f.owner != obs.player:
+                    d = distance((mine.x, mine.y), (f.x, f.y))
+                    if d < closest_enemy_dist:
+                        closest_enemy_dist = d
+
+            max_multiplier = 6.0 if is_four_player else 4.0
+            multiplicador = max(1.0, max_multiplier - (closest_enemy_dist / 15.0))
+
             if len(obs.my_planets) <= 1:
                 min_reserve_ships = 5
             elif len(obs.my_planets) <= 2 and obs.step < 120:
                 min_reserve_ships = 12 if not is_four_player else 18
             else:
-                min_reserve_ships = int(mine.production * self.hoarding_constant)
+                min_reserve_ships = int(mine.production * multiplicador)
                 min_reserve_ships = max(8, min_reserve_ships)
             min_reserve_ships = min(min_reserve_ships, int(available_ships * 0.45))
 
@@ -409,10 +453,10 @@ class EliteTactician(BaseStrategy):
                 if curr_dist > max_attack_dist:
                     continue
 
-                proposed_ships = max(target.ships + 2, int(available_ships * 0.75))
+                proposed_ships = max(5, target.ships + 2, int(available_ships * 0.75))
                 proposed_ships = min(proposed_ships, available_ships - 5)
 
-                if proposed_ships <= target.ships:
+                if proposed_ships < 5 or proposed_ships <= target.ships:
                     continue
 
                 est_speed = self.estimate_fleet_speed(proposed_ships)
