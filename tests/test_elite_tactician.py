@@ -136,3 +136,73 @@ def test_elite_tactician_tot_no_deadlock():
     # The assignment should be removed from tot_assignments to prevent any deadlock
     assert (1, 0) not in tactician.tot_assignments
 
+
+def test_elite_tactician_state_machine():
+    """Verify that EliteTactician dynamically tracks opponent captures and locks the correct profile at step 41."""
+    tactician = EliteTactician()
+
+    # Step 1: Initial state
+    assert tactician.current_profile == "standard"
+    assert not tactician.profile_locked
+
+    # Mock sequence of observations
+    # Turn 5: opponent 1 captures planet 2 (which was neutral -1)
+    obs_step_5 = {
+        "player": 0,
+        "step": 5,
+        "angular_velocity": 0.05,
+        "remainingOverageTime": 60.0,
+        "initial_planets": [
+            [0, 0, 10.0, 10.0, 2.0, 5, 2],
+            [1, -1, 20.0, 10.0, 2.0, 10, 1],
+            [2, -1, 30.0, 10.0, 2.0, 10, 1],
+        ],
+        "planets": [
+            [0, 0, 10.0, 10.0, 2.0, 5, 2],
+            [1, -1, 20.0, 10.0, 2.0, 10, 1],
+            [2, 1, 30.0, 10.0, 2.0, 10, 1],  # Owned by opponent 1!
+        ],
+        "fleets": [],
+        "comet_planet_ids": [],
+        "comets": [],
+    }
+
+    tactician.get_actions(obs_step_5)
+    # Opponent 1 planets_captured should be 1
+    assert tactician.opponent_tracker[1]["planets_captured"] == 1
+    assert tactician.opponent_tracker[1]["aggression_score"] == 1.0 / 5.0  # 0.20 (> 0.15)
+
+    # Step 41: Should trigger classification and select "defensive" because aggression_score (0.20) > 0.15
+    obs_step_41 = {
+        "player": 0,
+        "step": 41,
+        "angular_velocity": 0.05,
+        "remainingOverageTime": 60.0,
+        "initial_planets": [
+            [0, 0, 10.0, 10.0, 2.0, 5, 2],
+            [1, -1, 20.0, 10.0, 2.0, 10, 1],
+            [2, -1, 30.0, 10.0, 2.0, 10, 1],
+        ],
+        "planets": [
+            [0, 0, 10.0, 10.0, 2.0, 5, 2],
+            [1, 1, 20.0, 10.0, 2.0, 10, 1],
+            [2, 1, 30.0, 10.0, 2.0, 10, 1],
+        ],
+        "fleets": [],
+        "comet_planet_ids": [],
+        "comets": [],
+    }
+
+    tactician.get_actions(obs_step_41)
+    assert tactician.current_profile == "defensive"
+    assert tactician.profile_locked
+
+    # Verify that changing state again does not affect locked profile (Step 45)
+    # Even if aggression score changes or all oponents become passive, the profile must stay defensive
+    tactician.opponent_tracker[1]["aggression_score"] = 0.00
+    obs_step_45 = dict(obs_step_41, step=45)
+    tactician.get_actions(obs_step_45)
+    assert tactician.current_profile == "defensive"
+    assert tactician.profile_locked
+
+

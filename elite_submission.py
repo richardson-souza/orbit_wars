@@ -241,6 +241,8 @@ class BaseStrategy:
 
 
 # --- strategies/elite_tactician.py ---
+import os
+import json
 import math
 from typing import List, Dict, Any, Union, Tuple
 
@@ -274,10 +276,61 @@ class EliteTactician(BaseStrategy):
         self.tot_min_turns: int = 15            # Goldilocks ToT travel window minimum
         self.tot_max_turns: int = 45            # Goldilocks ToT travel window maximum
 
+        self.early_max_attack_dist: float = 60.0
+        self.early_rush_limit: int = 4
+
         # Stateful tracking for Coordinated Time-on-Target (ToT) attacks
         self.active_tot_attacks: Dict[int, Tuple[int, int]] = {}  # target_id -> (arrival_step, total_ships_to_send)
         self.tot_assignments: Dict[Tuple[int, int], int] = {}     # (target_id, source_id) -> ships_to_send
         self.sent_fleets_tracker: Dict[int, int] = {}             # target_id -> arrival_step for classic launches
+
+        # Opponent Scouting and State Machine tracking
+        self.opponent_tracker: Dict[int, Dict[str, Any]] = {}
+        self.prev_planet_owners: Dict[int, int] = {}
+        self.profile_locked: bool = False
+
+        # Load profiles with robust pre-calibrated fallbacks
+        self.profiles = {
+            "aggressive": {
+                "hoarding_constant": 3.0,
+                "evacuation_trigger": 4,
+                "max_attack_dist": 80.0,
+                "early_rush_limit": 8
+            },
+            "defensive": {
+                "hoarding_constant": 9.0,
+                "evacuation_trigger": 6,
+                "max_attack_dist": 40.0,
+                "early_rush_limit": 4
+            },
+            "standard": {
+                "hoarding_constant": 7.0,
+                "evacuation_trigger": 5,
+                "max_attack_dist": 60.0,
+                "early_rush_limit": 4
+            }
+        }
+        try:
+            profile_path = "profiles.json"
+            if os.path.exists(profile_path):
+                with open(profile_path, "r") as f:
+                    loaded = json.load(f)
+                    for k in ["aggressive", "defensive", "standard"]:
+                        if k in loaded:
+                            self.profiles[k].update(loaded[k])
+        except Exception:
+            pass
+
+        self.current_profile = "standard"
+        self.apply_profile("standard")
+
+    def apply_profile(self, profile_name: str):
+        self.current_profile = profile_name
+        p = self.profiles[profile_name]
+        self.hoarding_constant = p["hoarding_constant"]
+        self.evacuation_trigger = int(p["evacuation_trigger"])
+        self.early_max_attack_dist = p["max_attack_dist"]
+        self.early_rush_limit = int(p["early_rush_limit"])
 
     def estimate_fleet_speed(self, num_ships: int) -> float:
         """
@@ -296,6 +349,48 @@ class EliteTactician(BaseStrategy):
     ) -> List[List[Union[int, float]]]:
         obs = ParsedObservation(observation)
         moves: List[List[Union[int, float]]] = []
+
+        # Initialize Opponent Tracker if empty
+        if not self.opponent_tracker:
+            for idx in range(4):
+                if idx != obs.player:
+                    self.opponent_tracker[idx] = {"planets_captured": 0, "aggression_score": 0.0}
+
+        # Track neutral captures for step < 40
+        if obs.step < 40:
+            for p in obs.my_planets + obs.enemy_planets:
+                prev_o = self.prev_planet_owners.get(p.id, -1)
+                curr_o = p.owner
+                if prev_o == -1 and curr_o != -1 and curr_o != obs.player:
+                    if curr_o in self.opponent_tracker:
+                        self.opponent_tracker[curr_o]["planets_captured"] += 1
+            
+            # Update aggression score
+            step_factor = max(1, obs.step)
+            for opp_id, data in self.opponent_tracker.items():
+                data["aggression_score"] = data["planets_captured"] / step_factor
+
+        # Store owners for next step diffing
+        self.prev_planet_owners = {p.id: p.owner for p in obs.my_planets + obs.enemy_planets}
+        for pid, p in obs.all_planets.items():
+            if pid not in self.prev_planet_owners:
+                self.prev_planet_owners[pid] = p.owner
+
+        # Opening classification state machine at step 41
+        if obs.step >= 41 and not self.profile_locked:
+            max_aggression = 0.0
+            for opp_id, data in self.opponent_tracker.items():
+                if data["aggression_score"] > max_aggression:
+                    max_aggression = data["aggression_score"]
+
+            if max_aggression > 0.15:
+                self.apply_profile("defensive")
+            elif max_aggression < 0.08:
+                self.apply_profile("aggressive")
+            else:
+                self.apply_profile("standard")
+
+            self.profile_locked = True
 
         planet_ships = {p.id: p.ships for p in obs.my_planets}
 
@@ -504,8 +599,8 @@ class EliteTactician(BaseStrategy):
                 continue
 
             max_attack_dist = 55.0
-            if obs.step < 100 and len(obs.my_planets) <= 2:
-                max_attack_dist = 60.0
+            if obs.step < 100 and len(obs.my_planets) < self.early_rush_limit:
+                max_attack_dist = self.early_max_attack_dist
 
             best_arrival_step = None
             best_launchers = []
@@ -553,7 +648,7 @@ class EliteTactician(BaseStrategy):
 
                     if len(obs.my_planets) <= 1:
                         min_res = 5
-                    elif len(obs.my_planets) <= 2 and obs.step < 120:
+                    elif len(obs.my_planets) < self.early_rush_limit and obs.step < 120:
                         min_res = 6 if not is_four_player else 9
                     else:
                         min_res = int(mine.production * multiplicador)
@@ -658,7 +753,7 @@ class EliteTactician(BaseStrategy):
 
             if len(obs.my_planets) <= 1:
                 min_reserve_ships = 5
-            elif len(obs.my_planets) <= 2 and obs.step < 120:
+            elif len(obs.my_planets) < self.early_rush_limit and obs.step < 120:
                 min_reserve_ships = 6 if not is_four_player else 9
             else:
                 min_reserve_ships = int(mine.production * multiplicador)
@@ -692,8 +787,8 @@ class EliteTactician(BaseStrategy):
                     continue
 
                 max_attack_dist = 55.0
-                if obs.step < 100 and len(obs.my_planets) <= 2:
-                    max_attack_dist = 60.0
+                if obs.step < 100 and len(obs.my_planets) < self.early_rush_limit:
+                    max_attack_dist = self.early_max_attack_dist
 
                 if curr_dist > max_attack_dist:
                     continue
