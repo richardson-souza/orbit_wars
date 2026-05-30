@@ -349,7 +349,7 @@ class EliteTactician(BaseStrategy):
                 fleet_y_at_arr = fleet.y + (arr_step - obs.step) * vel_y * speed
 
                 dist_at_arr = distance((fleet_x_at_arr, fleet_y_at_arr), mine_pos_at_arr)
-                if dist_at_arr < 2.0:  # 100% precise landing collision!
+                if dist_at_arr < mine.radius + 1.0:  # Multi-size adaptive landing check with step discretization guard
                     if arr_step not in incoming_threats:
                         incoming_threats[arr_step] = []
                     incoming_threats[arr_step].append(fleet)
@@ -381,7 +381,7 @@ class EliteTactician(BaseStrategy):
                             fleet_ya_at_arr = f.y + (arr_step_a - obs.step) * vel_ya * speed_a
 
                             dist_at_arr_a = distance((fleet_xa_at_arr, fleet_ya_at_arr), mine_pos_at_arr_a)
-                            if dist_at_arr_a < 2.0:
+                            if dist_at_arr_a < mine.radius + 1.0:
                                 projected_garrison += f.ships
 
                 enemy_sum = sum(f.ships for f in fleets)
@@ -505,7 +505,7 @@ class EliteTactician(BaseStrategy):
 
             max_attack_dist = 55.0
             if obs.step < 100 and len(obs.my_planets) <= 2:
-                max_attack_dist = 35.0
+                max_attack_dist = 60.0
 
             best_arrival_step = None
             best_launchers = []
@@ -554,11 +554,11 @@ class EliteTactician(BaseStrategy):
                     if len(obs.my_planets) <= 1:
                         min_res = 5
                     elif len(obs.my_planets) <= 2 and obs.step < 120:
-                        min_res = 12 if not is_four_player else 18
+                        min_res = 6 if not is_four_player else 9
                     else:
                         min_res = int(mine.production * multiplicador)
                         min_res = max(8, min_res)
-                    min_res = min(min_res, int(available_ships * 0.45))
+                    min_res = min(min_res, int(available_ships * 0.70))
 
                     cap = max(0, available_ships - min_res)
                     if cap <= 5:
@@ -659,11 +659,11 @@ class EliteTactician(BaseStrategy):
             if len(obs.my_planets) <= 1:
                 min_reserve_ships = 5
             elif len(obs.my_planets) <= 2 and obs.step < 120:
-                min_reserve_ships = 12 if not is_four_player else 18
+                min_reserve_ships = 6 if not is_four_player else 9
             else:
                 min_reserve_ships = int(mine.production * multiplicador)
                 min_reserve_ships = max(8, min_reserve_ships)
-            min_reserve_ships = min(min_reserve_ships, int(available_ships * 0.45))
+            min_reserve_ships = min(min_reserve_ships, int(available_ships * 0.70))
 
             if available_ships < min_reserve_ships:
                 continue
@@ -693,7 +693,7 @@ class EliteTactician(BaseStrategy):
 
                 max_attack_dist = 55.0
                 if obs.step < 100 and len(obs.my_planets) <= 2:
-                    max_attack_dist = 35.0
+                    max_attack_dist = 60.0
 
                 if curr_dist > max_attack_dist:
                     continue
