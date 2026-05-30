@@ -26,8 +26,8 @@ class EliteTactician(BaseStrategy):
         self.aggression_weight = aggression_weight
 
         # Hyperparameters calibrated via typeIIIfairy reverse-engineering
-        self.evacuation_trigger: int = 4        # T-4 / T-3 ticks trigger window to avoid engine desync
-        self.hoarding_constant: float = 6.0     # min_res = production * 6.0 (Defesa Proporcional)
+        self.evacuation_trigger: int = 5        # T-5 ticks trigger window to avoid engine desync and maximize escape routing
+        self.hoarding_constant: float = 7.0     # min_res = production * 7.0 (Defesa Proporcional)
         self.tot_min_turns: int = 15            # Goldilocks ToT travel window minimum
         self.tot_max_turns: int = 45            # Goldilocks ToT travel window maximum
 
