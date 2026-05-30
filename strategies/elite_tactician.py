@@ -143,11 +143,9 @@ class EliteTactician(BaseStrategy):
 
                 enemy_sum = sum(f.ships for f in fleets)
                 if enemy_sum > projected_garrison:
-                    # Standing Our Ground (Game Theory Guard): only evacuate if we are weak or vastly outnumbered
-                    if projected_garrison < 15 or enemy_sum > projected_garrison * 2.0:
-                        if arr_step - obs.step <= self.evacuation_trigger:
-                            evacuating_planets[mine.id] = mine.ships
-                            break
+                    if arr_step - obs.step <= self.evacuation_trigger:
+                        evacuating_planets[mine.id] = mine.ships
+                        break
 
         # Process evacuations immediately to save our fleets
         for source_id, ships_to_evacuate in evacuating_planets.items():
@@ -307,7 +305,7 @@ class EliteTactician(BaseStrategy):
                             if d < closest_enemy_dist:
                                 closest_enemy_dist = d
 
-                    max_multiplier = 6.0 if is_four_player else 4.0
+                    max_multiplier = self.hoarding_constant if is_four_player else 6.0
                     multiplicador = max(1.0, max_multiplier - (closest_enemy_dist / 15.0))
 
                     if len(obs.my_planets) <= 1:
@@ -412,7 +410,7 @@ class EliteTactician(BaseStrategy):
                     if d < closest_enemy_dist:
                         closest_enemy_dist = d
 
-            max_multiplier = 6.0 if is_four_player else 4.0
+            max_multiplier = self.hoarding_constant if is_four_player else 6.0
             multiplicador = max(1.0, max_multiplier - (closest_enemy_dist / 15.0))
 
             if len(obs.my_planets) <= 1:
@@ -425,6 +423,10 @@ class EliteTactician(BaseStrategy):
             min_reserve_ships = min(min_reserve_ships, int(available_ships * 0.45))
 
             if available_ships < min_reserve_ships:
+                continue
+
+            surplus = available_ships - min_reserve_ships
+            if surplus < 5:
                 continue
 
             best_target: Planet = None
@@ -454,7 +456,7 @@ class EliteTactician(BaseStrategy):
                     continue
 
                 proposed_ships = max(5, target.ships + 2, int(available_ships * 0.75))
-                proposed_ships = min(proposed_ships, available_ships - 5)
+                proposed_ships = min(proposed_ships, surplus)
 
                 if proposed_ships < 5 or proposed_ships <= target.ships:
                     continue
