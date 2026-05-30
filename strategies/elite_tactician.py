@@ -135,12 +135,23 @@ class EliteTactician(BaseStrategy):
 
         # Opening classification state machine at step 41
         if obs.step >= 41 and not self.profile_locked:
+            force_defensive = False
             max_aggression = 0.0
-            for opp_id, data in self.opponent_tracker.items():
-                if data["aggression_score"] > max_aggression:
-                    max_aggression = data["aggression_score"]
+            for opp_id in self.opponent_tracker.keys():
+                agg_score = self.opponent_tracker[opp_id]["aggression_score"]
+                if agg_score > max_aggression:
+                    max_aggression = agg_score
+                
+                # Active and Passive threat accumulation check
+                opp_planets = [p for p in obs.enemy_planets if p.owner == opp_id]
+                max_garrison = max([p.ships for p in opp_planets] + [0])
+                opp_fleets = [f for f in obs.enemy_fleets if f.owner == opp_id]
+                total_fleet_mass = sum(f.ships for f in opp_fleets)
+                
+                if max_garrison > 30 or total_fleet_mass > 40:
+                    force_defensive = True
 
-            if max_aggression > 0.15:
+            if max_aggression > 0.15 or force_defensive:
                 self.apply_profile("defensive")
             elif max_aggression < 0.08:
                 self.apply_profile("aggressive")
@@ -410,6 +421,12 @@ class EliteTactician(BaseStrategy):
                     else:
                         min_res = int(mine.production * multiplicador)
                         min_res = max(8, min_res)
+                    
+                    # Escudo da Capital / Hard Floor Safeguard
+                    if mine.production >= 4 and closest_enemy_dist < 60.0:
+                        absolute_min = mine.production * 5
+                        min_res = max(min_res, absolute_min)
+
                     min_res = min(min_res, int(available_ships * 0.70))
 
                     cap = max(0, available_ships - min_res)
@@ -515,6 +532,12 @@ class EliteTactician(BaseStrategy):
             else:
                 min_reserve_ships = int(mine.production * multiplicador)
                 min_reserve_ships = max(8, min_reserve_ships)
+            
+            # Escudo da Capital / Hard Floor Safeguard
+            if mine.production >= 4 and closest_enemy_dist < 60.0:
+                absolute_min = mine.production * 5
+                min_reserve_ships = max(min_reserve_ships, absolute_min)
+
             min_reserve_ships = min(min_reserve_ships, int(available_ships * 0.70))
 
             if available_ships < min_reserve_ships:

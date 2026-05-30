@@ -1,20 +1,20 @@
 {
   "aggressive": {
-    "hoarding_constant": 6.265864605374753,
-    "evacuation_trigger": 4,
-    "max_attack_dist": 30.244753391949054,
-    "early_rush_limit": 9
-  },
-  "defensive": {
-    "hoarding_constant": 8.391691196548576,
-    "evacuation_trigger": 5,
-    "max_attack_dist": 46.89926897700575,
+    "hoarding_constant": 1.6358908331546502,
+    "evacuation_trigger": 2,
+    "max_attack_dist": 39.59729289786213,
     "early_rush_limit": 12
   },
+  "defensive": {
+    "hoarding_constant": 6.427025256709435,
+    "evacuation_trigger": 5,
+    "max_attack_dist": 58.74556898983218,
+    "early_rush_limit": 5
+  },
   "standard": {
-    "hoarding_constant": 1.464628255610862,
-    "evacuation_trigger": 8,
-    "max_attack_dist": 73.3000617284259,
-    "early_rush_limit": 6
+    "hoarding_constant": 4.4257066066223585,
+    "evacuation_trigger": 7,
+    "max_attack_dist": 92.87461925190185,
+    "early_rush_limit": 8
   }
 }
