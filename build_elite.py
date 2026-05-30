@@ -19,6 +19,7 @@ def main():
         "strategies/__init__.py",
         "strategies/base_strategy.py",
         "strategies/elite_tactician.py",
+        "profiles.json",
     ]
 
     with tarfile.open(archive_name, "w:gz") as tar:
