@@ -302,3 +302,87 @@ def test_physics_evacuation_solar_dodging():
     assert evac_move is not None, "O agente deveria ter evacuado"
     expected_angle = math.atan2(20.0 - 50.0, 20.0 - 20.0) # dx=0, dy=-30 => -pi/2
     assert math.isclose(evac_move[1], expected_angle, abs_tol=0.1), "O agente escolheu a rota suicida através do Sol em vez da rota segura"
+
+# ==============================================================================
+# CATEGORIA 5: COMPORTAMENTO GRANDMASTER BIPOLAR (V10)
+# ==============================================================================
+
+def test_mega_hoarding_patience():
+    """
+    Teste 5.1: Paciência do Mega-Hoarding (Território Isaiah)
+    Turno 100. Nosso planeta P1 tem Produção 5 e 120 naves. Planeta inimigo P2 tem 50 naves.
+    Perfil Defensivo Ativo (hoarding_constant = 28.0).
+    O bot NÃO PODE atacar. Ele precisa reter 5 * 28 = 140 naves. Ele deve retornar [].
+    """
+    agent = EliteTactician()
+    agent.apply_profile("defensive")
+    agent.hoarding_constant = 28.0
+    
+    planets = [
+        [0, 0, 30.0, 30.0, 5.0, 120, 5],  # Nosso planeta (id 0)
+        [1, 1, 50.0, 30.0, 5.0, 50, 2],   # Planeta inimigo (id 1)
+    ]
+    
+    obs = create_mock_obs(player=0, step=100, planets=planets, fleets=[])
+    moves = agent.get_actions(obs)
+    
+    attack_move = next((m for m in moves if m[0] == 0), None)
+    assert attack_move is None, "O agente deveria ter paciência e acumulado naves em vez de atacar sob mega-hoarding"
+
+def test_bipolar_early_expansion():
+    """
+    Teste 5.2: Expansão Rápida na Abertura (Burst Opening)
+    Turno 15. Nosso planeta P1 tem Produção 5 e 15 naves. Alvo neutro P2 tem 10 naves.
+    O bot DEVE ignorar as regras normais de hoarding e atacar para garantir a captura precoce.
+    """
+    agent = EliteTactician()
+    agent.apply_profile("defensive")
+    agent.hoarding_constant = 28.0
+    
+    planets = [
+        [0, 0, 30.0, 30.0, 5.0, 15, 5],  # Nosso planeta (id 0)
+        [1, -1, 50.0, 30.0, 5.0, 10, 1], # Alvo neutro (id 1)
+    ]
+    
+    obs = create_mock_obs(player=0, step=15, planets=planets, fleets=[])
+    moves = agent.get_actions(obs)
+    
+    attack_move = next((m for m in moves if m[0] == 0), None)
+    assert attack_move is not None, "O agente deveria ter atacado o planeta neutro durante o Burst Opening"
+    assert attack_move[2] >= 12, "O agente deveria ter enviado frotas suficientes para capturar"
+
+def test_opportunistic_snipe():
+    """
+    Teste 5.3: Snipe Oportunista (Capital Vazia)
+    Turno 200. Nós temos 3 bases acumuladas com 150 naves cada. Um inimigo acabou de usar todas as suas naves,
+    deixando a capital dele (Produção 5) com apenas 5 naves.
+    O bot DEVE acionar o ToT sincronizado massivo ignorando limites de hoarding.
+    """
+    agent = EliteTactician()
+    agent.apply_profile("defensive")
+    agent.hoarding_constant = 28.0
+    
+    # We need to make sure we have 4 planets to enable ToT
+    planets = [
+        [0, 0, 30.0, 70.0, 5.0, 150, 5],  # Nosso planeta 1
+        [1, 0, 30.0, 90.0, 5.0, 150, 5],  # Nosso planeta 2
+        [2, 0, 70.0, 70.0, 5.0, 150, 5],  # Nosso planeta 3
+        [4, 0, 70.0, 90.0, 5.0, 150, 5],  # Nosso planeta 4
+        [3, 1, 50.0, 90.0, 5.0, 5, 5],    # Capital inimiga vulnerável (id 3) - fora do Sol!
+    ]
+    
+    obs = create_mock_obs(player=0, step=200, planets=planets, fleets=[])
+    obs["angular_velocity"] = 0.0
+    agent.get_actions(obs)
+    
+    # Verify that the ToT attack was successfully scheduled
+    assert len(agent.active_tot_attacks) > 0, "O ToT deveria ter sido agendado"
+    
+    # Advance to step 203 to reach the synchronized launch window (T-12)
+    obs2 = create_mock_obs(player=0, step=203, planets=planets, fleets=[])
+    obs2["angular_velocity"] = 0.0
+    moves2 = agent.get_actions(obs2)
+    
+    tot_moves = [m for m in moves2 if m[2] > 0]
+    assert len(tot_moves) > 0, "As naves de ToT deveriam ter sido lançadas no launch window em step 203"
+

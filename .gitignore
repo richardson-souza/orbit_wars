@@ -15,6 +15,7 @@ ENV/
 # Local replays and debug data
 docs/replays/
 docs/episodes/
+docs/relatorio_de_avaliacao/grandmaster/isaiah_tufa_labs
 
 # Ignore the entire orbit-wars-data folder by default
 orbit-wars-data/*

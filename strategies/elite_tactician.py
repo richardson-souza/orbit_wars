@@ -29,7 +29,7 @@ class EliteTactician(BaseStrategy):
 
         # Hyperparameters calibrated via typeIIIfairy reverse-engineering
         self.evacuation_trigger: int = 5        # T-5 ticks trigger window to avoid engine desync and maximize escape routing
-        self.hoarding_constant: float = 7.0     # min_res = production * 7.0 (Defesa Proporcional)
+        self.hoarding_constant: float = 15.0    # min_res = production * 15.0 (Defesa Proporcional)
         self.tot_min_turns: int = 15            # Goldilocks ToT travel window minimum
         self.tot_max_turns: int = 45            # Goldilocks ToT travel window maximum
 
@@ -49,19 +49,19 @@ class EliteTactician(BaseStrategy):
         # Load profiles with robust pre-calibrated fallbacks
         self.profiles = {
             "aggressive": {
-                "hoarding_constant": 3.0,
+                "hoarding_constant": 2.0,
                 "evacuation_trigger": 4,
                 "max_attack_dist": 80.0,
                 "early_rush_limit": 8
             },
             "defensive": {
-                "hoarding_constant": 9.0,
+                "hoarding_constant": 28.0,
                 "evacuation_trigger": 6,
                 "max_attack_dist": 40.0,
                 "early_rush_limit": 4
             },
             "standard": {
-                "hoarding_constant": 7.0,
+                "hoarding_constant": 15.0,
                 "evacuation_trigger": 5,
                 "max_attack_dist": 60.0,
                 "early_rush_limit": 4
@@ -390,7 +390,13 @@ class EliteTactician(BaseStrategy):
                 else:
                     predicted_garrison = target.ships + (arr_step - obs.step) * target.production
 
-                ships_needed = predicted_garrison + 2
+                # Overkill Guard and Opportunistic Snipe Exception
+                is_weak_capital = (target.owner != -1 and target.ships < 10 and target.production >= 3)
+                if target.owner != -1 and target.id not in obs.comet_planet_ids and not is_weak_capital:
+                    ships_needed = int(predicted_garrison * 1.5) + 2
+                else:
+                    ships_needed = predicted_garrison + 2
+
                 potential_launchers = []
                 total_avail_potential = 0
 
@@ -411,10 +417,12 @@ class EliteTactician(BaseStrategy):
                             if d < closest_enemy_dist:
                                 closest_enemy_dist = d
 
-                    max_multiplier = self.hoarding_constant if is_four_player else 6.0
+                    max_multiplier = self.hoarding_constant
                     multiplicador = max(1.0, max_multiplier - (closest_enemy_dist / 15.0))
 
-                    if len(obs.my_planets) <= 1:
+                    if obs.step < 40:
+                        min_res = 3
+                    elif len(obs.my_planets) <= 1:
                         min_res = 5
                     elif len(obs.my_planets) < self.early_rush_limit and obs.step < 120:
                         min_res = 6 if not is_four_player else 9
@@ -427,7 +435,12 @@ class EliteTactician(BaseStrategy):
                         absolute_min = mine.production * 5
                         min_res = max(min_res, absolute_min)
 
-                    min_res = min(min_res, int(available_ships * 0.70))
+                    # For opportunistic snipes on weak capitals, allow using more ships by lowering dynamic reserves
+                    if is_weak_capital:
+                        min_res = min(min_res, mine.production * 2)
+
+                    reserve_cap = 0.70 if self.hoarding_constant <= 10.0 else 0.95
+                    min_res = min(min_res, int(available_ships * reserve_cap))
 
                     cap = max(0, available_ships - min_res)
                     if cap <= 5:
@@ -522,10 +535,12 @@ class EliteTactician(BaseStrategy):
                     if d < closest_enemy_dist:
                         closest_enemy_dist = d
 
-            max_multiplier = self.hoarding_constant if is_four_player else 6.0
+            max_multiplier = self.hoarding_constant
             multiplicador = max(1.0, max_multiplier - (closest_enemy_dist / 15.0))
 
-            if len(obs.my_planets) <= 1:
+            if obs.step < 40:
+                min_reserve_ships = 3
+            elif len(obs.my_planets) <= 1:
                 min_reserve_ships = 5
             elif len(obs.my_planets) < self.early_rush_limit and obs.step < 120:
                 min_reserve_ships = 6 if not is_four_player else 9
@@ -538,14 +553,8 @@ class EliteTactician(BaseStrategy):
                 absolute_min = mine.production * 5
                 min_reserve_ships = max(min_reserve_ships, absolute_min)
 
-            min_reserve_ships = min(min_reserve_ships, int(available_ships * 0.70))
-
-            if available_ships < min_reserve_ships:
-                continue
-
-            surplus = available_ships - min_reserve_ships
-            if surplus < 5:
-                continue
+            reserve_cap = 0.70 if self.hoarding_constant <= 10.0 else 0.95
+            min_reserve_ships = min(min_reserve_ships, int(available_ships * reserve_cap))
 
             best_target: Planet = None
             best_score: float = -float("inf")
@@ -571,6 +580,19 @@ class EliteTactician(BaseStrategy):
                     max_attack_dist = self.early_max_attack_dist
 
                 if curr_dist > max_attack_dist:
+                    continue
+
+                # Opportunistic Snipe Exception
+                is_weak_capital = (target.owner != -1 and target.ships < 10 and target.production >= 3)
+                current_min_reserve = min_reserve_ships
+                if is_weak_capital:
+                    current_min_reserve = min(current_min_reserve, mine.production * 2)
+
+                if available_ships < current_min_reserve:
+                    continue
+
+                surplus = available_ships - current_min_reserve
+                if surplus < 5:
                     continue
 
                 proposed_ships = max(5, target.ships + 2, int(available_ships * 0.75))
@@ -640,12 +662,16 @@ class EliteTactician(BaseStrategy):
                 else:
                     predicted_garrison = target.ships + travel_turns * target.production
 
-                ships_needed = predicted_garrison + 2
+                # Overkill Guard and Opportunistic Snipe Exception
+                if target.owner != -1 and target.id not in obs.comet_planet_ids and not is_weak_capital:
+                    ships_needed = int(predicted_garrison * 1.5) + 2
+                else:
+                    ships_needed = predicted_garrison + 2
 
                 if proposed_ships < ships_needed:
                     proposed_ships = ships_needed
 
-                if available_ships < proposed_ships + 5:
+                if available_ships < proposed_ships + current_min_reserve:
                     continue
 
                 score = (

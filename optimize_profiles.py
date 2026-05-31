@@ -41,7 +41,7 @@ def optimize_defensive(n_trials: int, seeds: list) -> dict:
     
     def objective(trial):
         params = {
-            'hoarding_constant': trial.suggest_float('hoarding_constant', 6.0, 10.0),
+            'hoarding_constant': trial.suggest_float('hoarding_constant', 22.0, 35.0),
             'evacuation_trigger': trial.suggest_int('evacuation_trigger', 2, 8),
             'max_attack_dist': trial.suggest_float('max_attack_dist', 30.0, 100.0),
             'early_rush_limit': trial.suggest_int('early_rush_limit', 4, 15)
@@ -71,7 +71,7 @@ def optimize_standard(n_trials: int, seeds: list) -> dict:
     
     def objective(trial):
         params = {
-            'hoarding_constant': trial.suggest_float('hoarding_constant', 3.5, 5.5),
+            'hoarding_constant': trial.suggest_float('hoarding_constant', 10.0, 20.0),
             'evacuation_trigger': trial.suggest_int('evacuation_trigger', 2, 8),
             'max_attack_dist': trial.suggest_float('max_attack_dist', 30.0, 100.0),
             'early_rush_limit': trial.suggest_int('early_rush_limit', 4, 15)
