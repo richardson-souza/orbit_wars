@@ -1,10 +1,11 @@
 import os
 import tarfile
+import json
 
 
 def main():
     print("=" * 60)
-    print("             ORBIT WARS SUBMISSION BUILDER")
+    print("             ORBIT WARS SUBMISSION BUILDER (V10)")
     print("=" * 60)
 
     archive_name = "submission.tar.gz"
@@ -18,8 +19,8 @@ def main():
         "core/observation.py",
         "strategies/__init__.py",
         "strategies/base_strategy.py",
-        "strategies/heuristic_scorer.py",
-        "strategies/mcts_search.py",
+        "strategies/elite_tactician.py",
+        "profiles.json",
     ]
 
     with tarfile.open(archive_name, "w:gz") as tar:
@@ -37,7 +38,7 @@ def main():
     core_physics = ""
     core_obs = ""
     strat_base = ""
-    strat_heur = ""
+    strat_elite = ""
 
     with open("core/physics.py") as f:
         core_physics = f.read().replace("from typing", "# from typing")
@@ -48,18 +49,50 @@ def main():
     with open("strategies/base_strategy.py") as f:
         strat_base = f.read()
 
-    with open("strategies/heuristic_scorer.py") as f:
-        strat_heur = f.read()
-        strat_heur = strat_heur.replace(
+    with open("strategies/elite_tactician.py") as f:
+        strat_elite = f.read()
+        strat_elite = strat_elite.replace(
             "from strategies.base_strategy import BaseStrategy", ""
         )
-        strat_heur = strat_heur.replace(
+        strat_elite = strat_elite.replace(
             "from core.observation import ParsedObservation, Planet, Fleet", ""
         )
-        strat_heur = strat_heur.replace(
+        strat_elite = strat_elite.replace(
             "from core.physics import distance, intersects_sun, get_planet_position_at_step, intersects_planet",
             "",
         )
+        
+        # Inline pre-calibrated profiles dynamically
+        try:
+            with open("profiles.json") as pf:
+                profiles_data = json.load(pf)
+            
+            target_fallback_block = """        self.profiles = {
+            "aggressive": {
+                "hoarding_constant": 2.0,
+                "evacuation_trigger": 4,
+                "max_attack_dist": 80.0,
+                "early_rush_limit": 8
+            },
+            "defensive": {
+                "hoarding_constant": 28.0,
+                "evacuation_trigger": 6,
+                "max_attack_dist": 40.0,
+                "early_rush_limit": 4
+            },
+            "standard": {
+                "hoarding_constant": 15.0,
+                "evacuation_trigger": 5,
+                "max_attack_dist": 60.0,
+                "early_rush_limit": 4
+            }
+        }"""
+            
+            custom_profiles_block = "        self.profiles = " + json.dumps(profiles_data, indent=12)
+            strat_elite = strat_elite.replace(target_fallback_block, custom_profiles_block)
+            print("Successfully inlined profiles.json into standalone agent!")
+        except Exception as e:
+            print(f"Warning: Failed to inline profiles.json: {e}")
 
     compiled_code = f"""# ==============================================================================
 # Standalone Zero-Dependency Orbit Wars Submission Agent
@@ -79,17 +112,17 @@ from collections import namedtuple
 # --- strategies/base_strategy.py ---
 {strat_base}
 
-# --- strategies/heuristic_scorer.py ---
-{strat_heur}
+# --- strategies/elite_tactician.py ---
+{strat_elite}
 
 # --- main.py ---
 # Initialize globally to maintain state
-agent_strategy = HeuristicScorer(
-    production_weight=15.0,
-    distance_weight=0.7,
+agent_strategy = EliteTactician(
+    production_weight=12.0,
+    distance_weight=3.5,
     ship_cost_weight=0.1,
     comet_bonus=25.0,
-    aggression_weight=1.5
+    aggression_weight=1.0
 )
 
 def agent(obs) -> list:
