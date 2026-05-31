@@ -62,6 +62,41 @@ def main():
             "from core.physics import distance, intersects_sun, get_planet_position_at_step, intersects_planet",
             "",
         )
+        
+        # Inline pre-calibrated profiles dynamically
+        try:
+            import json
+            with open("profiles.json") as pf:
+                profiles_data = json.load(pf)
+            
+            target_fallback_block = """        self.profiles = {
+            "aggressive": {
+                "hoarding_constant": 2.0,
+                "evacuation_trigger": 4,
+                "max_attack_dist": 80.0,
+                "early_rush_limit": 8
+            },
+            "defensive": {
+                "hoarding_constant": 28.0,
+                "evacuation_trigger": 6,
+                "max_attack_dist": 40.0,
+                "early_rush_limit": 4
+            },
+            "standard": {
+                "hoarding_constant": 15.0,
+                "evacuation_trigger": 5,
+                "max_attack_dist": 60.0,
+                "early_rush_limit": 4
+            }
+        }"""
+            
+            # Format custom profiles block
+            custom_profiles_block = "        self.profiles = " + json.dumps(profiles_data, indent=12)
+            strat_elite = strat_elite.replace(target_fallback_block, custom_profiles_block)
+            print("Successfully inlined profiles.json into the standalone agent code!")
+        except Exception as e:
+            print(f"Warning: Failed to inline profiles.json: {e}")
+
 
     compiled_code = f"""# ==============================================================================
 # Standalone Zero-Dependency Orbit Wars Elite Submission Agent

@@ -292,24 +292,24 @@ class EliteTactician(BaseStrategy):
         # Load profiles with robust pre-calibrated fallbacks
         self.profiles = {
             "aggressive": {
-                "hoarding_constant": 2.0,
-                "evacuation_trigger": 4,
-                "max_attack_dist": 80.0,
-                "early_rush_limit": 8
+                        "hoarding_constant": 2.4899885273430082,
+                        "evacuation_trigger": 5,
+                        "max_attack_dist": 59.328551549875016,
+                        "early_rush_limit": 10
             },
             "defensive": {
-                "hoarding_constant": 28.0,
-                "evacuation_trigger": 6,
-                "max_attack_dist": 40.0,
-                "early_rush_limit": 4
+                        "hoarding_constant": 23.90528693127415,
+                        "evacuation_trigger": 8,
+                        "max_attack_dist": 84.81635573447033,
+                        "early_rush_limit": 6
             },
             "standard": {
-                "hoarding_constant": 15.0,
-                "evacuation_trigger": 5,
-                "max_attack_dist": 60.0,
-                "early_rush_limit": 4
+                        "hoarding_constant": 17.761645522314105,
+                        "evacuation_trigger": 4,
+                        "max_attack_dist": 97.28600157492676,
+                        "early_rush_limit": 7
             }
-        }
+}
         try:
             profile_path = "profiles.json"
             if os.path.exists(profile_path):
